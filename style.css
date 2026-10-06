@@ -373,17 +373,33 @@ body[data-mode="objects"] .act.lit { color: var(--cyan); box-shadow: inset 0 0 0
 }
 .tl-key.lin i { border-radius: 0; background: #ffd27a; }
 .tl-key.on i { background: #fff; box-shadow: 0 0 0 2px var(--amber); width: 15px; height: 15px; }
-.tl-bar {
+.tl-oseg {
   position: absolute;
-  top: 9px;
-  height: 8px;
-  border-radius: 4px;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
   background: var(--c);
-  opacity: 0.55;
-  touch-action: none;
+  opacity: 0.35;
+  border-radius: 2px;
+  pointer-events: none;
 }
-.tl-bar::before { content: ""; position: absolute; inset: -9px 0; }
-.tl-bar.sel { opacity: 1; box-shadow: 0 0 0 1.5px #fff; }
+.tl-oseg.sel { opacity: 0.9; height: 4px; margin-top: -2px; }
+.tl-okey {
+  position: absolute;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  opacity: 0.55;
+}
+.tl-okey i { width: 10px; height: 10px; background: var(--c); transform: rotate(45deg); border-radius: 2px; box-shadow: 0 0 0 2px #0e1013; }
+.tl-okey.sel { opacity: 1; z-index: 1; }
+.tl-okey.sel i { width: 13px; height: 13px; }
+.tl-okey.lin i { border-radius: 0; }
+.tl-okey.on i { background: #fff; box-shadow: 0 0 0 2px var(--cyan); width: 15px; height: 15px; }
 .tl-head {
   position: absolute;
   top: 0;
@@ -703,7 +719,7 @@ kbd {
   .act.primary:hover, .btn-preview:hover { filter: brightness(1.08); }
   .act.primary.obj:hover { background: var(--cyan); }
   .seg button:hover:not(.on) { color: var(--text); }
-  .tl-key:hover i { transform: rotate(45deg) scale(1.25); }
+  .tl-key:hover i, .tl-okey:hover i { transform: rotate(45deg) scale(1.25); }
   #c { cursor: grab; }
   #c:active { cursor: grabbing; }
   #timeline { cursor: col-resize; }
@@ -745,7 +761,6 @@ kbd {
   #timeline { grid-column: 2; grid-row: 3; height: 104px; margin: 10px 12px 0; }
   .tl-cam { height: 40px; }
   .tl-obj { top: 66px; height: 36px; }
-  .tl-bar { top: 14px; }
   #transport { grid-column: 2; grid-row: 4; padding: 10px 12px 12px; }
   #nudge { grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 42px); }
 

@@ -141,6 +141,32 @@ try {
   await page.locator('[data-act="add-type"][data-type="person"]').click();
   s = await st();
   ok(s.objs === 2 && s.sel, 'إضافة شخص بنقرة');
+
+  // حركة العنصر بالماوس: K بالبداية، وبعدين سحب العنصر بالثانية 3 = مفتاح لحاله
+  const objScreen = () => page.evaluate(() => {
+    const { stage, app } = window.__blk;
+    const v = stage.objectPos(app.selectedId).clone().project(stage.editorCam);
+    const r = stage.canvas.getBoundingClientRect();
+    return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+  });
+  const objPos = () => page.evaluate(() => window.__blk.stage.objectPos(window.__blk.app.selectedId).toArray());
+  await key('Home');
+  await key('k');
+  await key('Shift+ArrowRight', 3);
+  const o0 = await objPos();
+  const sc = await objScreen();
+  await page.mouse.move(sc.x, sc.y); await page.mouse.down(); await page.mouse.move(sc.x + 160, sc.y + 20, { steps: 14 }); await page.mouse.up();
+  await page.waitForTimeout(300);
+  const okeys = await page.evaluate(() => { const { app } = window.__blk; return app.project.objects.find((o) => o.id === app.selectedId).keys.map((k) => k.t); });
+  ok(okeys.join() === '0,3', 'سحب العنصر بعد أول مفتاح = مفتاح جديد لحاله', okeys.join());
+  await key('Home');
+  ok(dist(await objPos(), o0) < 1e-6, 'بالثانية 0 العنصر بمكانه الأول');
+  await key('Space');
+  await page.waitForTimeout(1200);
+  await key('Space');
+  const oMid = await objPos();
+  ok(dist(oMid, o0) > 0.2, 'التشغيل بيحرك العنصر لحاله', `${dist(oMid, o0).toFixed(2)}m`);
+  await key('Home');
   await key('r');
   ok((await st()).gizmo === 'rotate', 'R = تدوير');
   const e0 = await page.evaluate(() => window.__blk.stage.editorCam.position.toArray());

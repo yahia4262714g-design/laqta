@@ -12,7 +12,7 @@ export class Timeline {
   constructor(el, cb) {
     this.el = el;
     this.cb = cb;
-    this.state = { duration: 10, keys: [], bars: [], time: 0 };
+    this.state = { duration: 10, keys: [], objKeys: [], time: 0 };
     el.innerHTML = `
       <div class="tl-ruler"></div>
       <div class="tl-row tl-cam"><span class="tl-label">كاميرا</span></div>
@@ -73,14 +73,20 @@ export class Timeline {
     }
     this.camRow.innerHTML = keys;
 
-    // حركات المجسمات
-    let bars = '<span class="tl-label">مجسمات</span>';
-    state.bars.forEach((b, i) => {
-      const x0 = this.x(b.start), x1 = this.x(Math.min(b.start + b.dur, duration));
-      const lane = state.bars.length > 1 ? (i % 2) * 9 - 4 : 0;
-      bars += `<button class="tl-bar${b.selected ? ' sel' : ''}" data-obj="${b.id}" style="left:${x0}px;width:${Math.max(6, x1 - x0)}px;--c:${b.color};transform:translateY(${lane}px)" aria-label="${b.name}"></button>`;
-    });
-    this.objRow.innerHTML = bars;
+    // مفاتيح حركة المجسمات: خط بلون العنصر بين مفاتيحه، والمحدد أوضح
+    let objs = '<span class="tl-label">مجسمات</span>';
+    for (const o of state.objKeys) {
+      const cls = o.selected ? ' sel' : '';
+      for (let i = 1; i < o.keys.length; i++) {
+        const x0 = this.x(o.keys[i - 1].t), x1 = this.x(o.keys[i].t);
+        objs += `<i class="tl-oseg${cls}" style="left:${x0}px;width:${x1 - x0}px;--c:${o.color}"></i>`;
+      }
+      for (const k of o.keys) {
+        const on = o.selected && Math.abs(k.t - state.time) < KEY_EPS;
+        objs += `<button class="tl-okey${cls}${on ? ' on' : ''}${k.ease === 'linear' ? ' lin' : ''}" data-obj="${o.id}" data-okey="${k.id}" style="left:${this.x(k.t)}px;--c:${o.color}" aria-label="${o.name} ${k.t.toFixed(1)}"><i></i></button>`;
+      }
+    }
+    this.objRow.innerHTML = objs;
 
     this.setTime(state.time);
   }
@@ -95,15 +101,16 @@ export class Timeline {
   onDown(e) {
     if (this.drag) return;
     const keyEl = e.target.closest('.tl-key');
-    const barEl = e.target.closest('.tl-bar');
+    const okeyEl = e.target.closest('.tl-okey');
     this.el.setPointerCapture(e.pointerId);
     this.drag = { id: e.pointerId, x0: e.clientX, kind: 'scrub' };
     if (keyEl) {
       this.drag.kind = 'key-pending';
       this.drag.key = keyEl.dataset.key;
-    } else if (barEl) {
-      this.drag.kind = 'bar-pending';
-      this.drag.obj = barEl.dataset.obj;
+    } else if (okeyEl) {
+      this.drag.kind = 'okey-pending';
+      this.drag.obj = okeyEl.dataset.obj;
+      this.drag.key = okeyEl.dataset.okey;
     } else {
       this.cb.scrub(this.timeAt(e.clientX));
     }
@@ -114,8 +121,9 @@ export class Timeline {
     if (!d || d.id !== e.pointerId) return;
     const moved = Math.abs(e.clientX - d.x0) > DRAG_PX;
     if (d.kind === 'key-pending' && moved) d.kind = 'key-drag';
-    if (d.kind === 'bar-pending' && moved) d.kind = 'scrub';
+    if (d.kind === 'okey-pending' && moved) d.kind = 'okey-drag';
     if (d.kind === 'key-drag') this.cb.keyMove(d.key, snapTime(this.timeAt(e.clientX)));
+    else if (d.kind === 'okey-drag') this.cb.objKeyMove(d.obj, d.key, snapTime(this.timeAt(e.clientX)));
     else if (d.kind === 'scrub') this.cb.scrub(this.timeAt(e.clientX));
   }
 
@@ -126,6 +134,7 @@ export class Timeline {
     if (cancelled) return;
     if (d.kind === 'key-pending') this.cb.keyTap(d.key);
     else if (d.kind === 'key-drag') this.cb.keyMoveEnd(d.key);
-    else if (d.kind === 'bar-pending') this.cb.barTap(d.obj);
+    else if (d.kind === 'okey-pending') this.cb.objKeyTap(d.obj, d.key);
+    else if (d.kind === 'okey-drag') this.cb.keyMoveEnd();
   }
 }

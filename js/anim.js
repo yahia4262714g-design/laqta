@@ -67,44 +67,84 @@ function keyValues(k, resolveTarget) {
   };
 }
 
-const PROPS = ['pos', 'target', 'lens', 'roll'];
-
 function out(v) {
   return { pos: v.pos.slice(), target: v.target.slice(), lens: Math.exp(v.lens[0]), roll: v.roll[0] };
 }
 
-/** وضع الكاميرا بالوقت t.
- *  keys لازم تكون مرتبة. resolveTarget(k) بترجع نقطة الهدف (مثلاً مكان مجسم متحرك بهاللحظة). */
-export function evalCamera(keys, t, resolveTarget) {
+/** استيفاء عام لأي مفاتيح: valuesOf(k, i) بيرجع {اسم: [أرقام]}.
+ *  ناعم = منحنى بيمر بالمفاتيح بدون تجاوز. خطي = سرعة ثابتة. */
+export function evalKeys(keys, t, valuesOf) {
   const n = keys.length;
   if (!n) return null;
-  if (n === 1 || t <= keys[0].t) return out(keyValues(keys[0], resolveTarget));
-  if (t >= keys[n - 1].t) return out(keyValues(keys[n - 1], resolveTarget));
+  if (n === 1 || t <= keys[0].t) return valuesOf(keys[0], 0);
+  if (t >= keys[n - 1].t) return valuesOf(keys[n - 1], n - 1);
 
   let i = 0;
   while (i < n - 2 && t >= keys[i + 1].t) i++;
   const k0 = keys[i], k1 = keys[i + 1];
   const dt = k1.t - k0.t;
-  if (dt < 1e-6) return out(keyValues(k1, resolveTarget));
+  if (dt < 1e-6) return valuesOf(k1, i + 1);
   const u = (t - k0.t) / dt;
 
-  const v0 = keyValues(k0, resolveTarget), v1 = keyValues(k1, resolveTarget);
+  const v0 = valuesOf(k0, i), v1 = valuesOf(k1, i + 1);
+  const props = Object.keys(v0);
   const res = {};
-
   if (k0.ease === 'linear') {
-    for (const p of PROPS) res[p] = lerpArr(v0[p], v1[p], u);
-    return out(res);
+    for (const p of props) res[p] = lerpArr(v0[p], v1[p], u);
+    return res;
   }
-
-  const vp = i > 0 ? keyValues(keys[i - 1], resolveTarget) : null;
-  const vn = i + 2 < n ? keyValues(keys[i + 2], resolveTarget) : null;
-  for (const p of PROPS) {
+  const vp = i > 0 ? valuesOf(keys[i - 1], i - 1) : null;
+  const vn = i + 2 < n ? valuesOf(keys[i + 2], i + 2) : null;
+  for (const p of props) {
     const zero = v0[p].map(() => 0);
     const m0 = vp ? tangent(vp[p], v0[p], v1[p], k0.t - keys[i - 1].t, dt) : zero;
     const m1 = vn ? tangent(v0[p], v1[p], vn[p], dt, keys[i + 2].t - k1.t) : zero;
     res[p] = hermite(v0[p], v1[p], m0, m1, dt, u);
   }
-  return out(res);
+  return res;
+}
+
+/** وضع الكاميرا بالوقت t.
+ *  keys لازم تكون مرتبة. resolveTarget(k) بترجع نقطة الهدف (مثلاً مكان مجسم متحرك بهاللحظة). */
+export function evalCamera(keys, t, resolveTarget) {
+  const r = evalKeys(keys, t, (k) => keyValues(k, resolveTarget));
+  return r && out(r);
+}
+
+/* ---------- حركة المجسمات بالمفاتيح ---------- */
+
+// الدوران بيلف من أقصر طريق: لو المفتاح 170° والتاني -170° بيلف 20° مش 340°
+function unwrapRotations(keys) {
+  const outR = [];
+  let prev = null;
+  for (const k of keys) {
+    const r = k.rot.slice();
+    if (prev) {
+      for (let i = 0; i < 3; i++) {
+        while (r[i] - prev[i] > Math.PI) r[i] -= 2 * Math.PI;
+        while (r[i] - prev[i] < -Math.PI) r[i] += 2 * Math.PI;
+      }
+    }
+    outR.push(r);
+    prev = r;
+  }
+  return outR;
+}
+
+/** مكان ودوران وحجم المجسم بالوقت t، أو null إذا ما إله مفاتيح. keys مرتبة. */
+export function evalObject(keys, t) {
+  if (!keys || !keys.length) return null;
+  const rots = unwrapRotations(keys);
+  return evalKeys(keys, t, (k, i) => ({ pos: k.pos, rot: rots[i], scale: k.scale }));
+}
+
+/** نقاط مسار المجسم للرسم. */
+export function sampleObjectPath(keys, steps = 80) {
+  if (!keys || keys.length < 2) return [];
+  const t0 = keys[0].t, t1 = keys[keys.length - 1].t;
+  const pts = [];
+  for (let s = 0; s <= steps; s++) pts.push(evalObject(keys, t0 + ((t1 - t0) * s) / steps).pos);
+  return pts;
 }
 
 /** نقاط مسار الكاميرا للرسم بالمشهد. */
@@ -116,39 +156,21 @@ export function sampleCameraPath(keys, steps = 120) {
   return pts;
 }
 
-/* ---------- حركة المجسمات A → B ---------- */
-
-/** نسبة التقدم (0..1) بعد التنعيم، أو null إذا الحركة مش جاهزة. */
-export function motionProgress(m, t) {
-  if (!m || !m.a || !m.b) return null;
-  const u = clamp((t - m.start) / Math.max(m.dur, 1e-3), 0, 1);
-  return m.ease === 'linear' ? u : easeInOut(u);
-}
-
-/** أي طرف من الحركة بينعدّل لما المستخدم يحرك المجسم بهاللحظة. */
-export function motionEditTarget(m, t) {
-  if (!m || !m.a || !m.b) return 'base';
-  if (t <= m.start + 1e-3) return 'a';
-  if (t >= m.start + m.dur - 1e-3) return 'b';
-  return 'both';
-}
-
 /* ---------- مدة المشهد ---------- */
 
 /** بيرجّع المفاتيح والحركات لجوّا المدة الجديدة بدل ما تضيع. */
 export function fitToDuration(project, duration) {
   project.duration = duration;
-  const used = new Set();
-  for (const k of sortKeys(project.keys)) {
-    let t = clamp(k.t, 0, duration);
-    while (used.has(snapTime(t)) && t > 0) t = snapTime(t - 0.1);
-    k.t = snapTime(t);
-    used.add(k.t);
-  }
-  for (const o of project.objects) {
-    const m = o.motion;
-    if (!m) continue;
-    m.start = clamp(m.start, 0, Math.max(0, duration - 0.1));
-    m.dur = clamp(m.dur, 0.1, duration - m.start);
-  }
+  const fit = (keys) => {
+    const used = new Set();
+    for (const k of sortKeys(keys)) {
+      let t = clamp(k.t, 0, duration);
+      while (used.has(snapTime(t)) && t > 0) t = snapTime(t - 0.1);
+      k.t = snapTime(t);
+      used.add(k.t);
+    }
+    keys.sort((a, b) => a.t - b.t);
+  };
+  fit(project.keys);
+  for (const o of project.objects) if (o.keys) fit(o.keys);
 }

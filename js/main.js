@@ -20,7 +20,7 @@ const desktop = matchMedia('(hover: hover) and (pointer: fine)').matches;
 const wideLayout = matchMedia('(min-width: 980px) and (min-height: 560px)');
 wideLayout.addEventListener?.('change', () => renderActions(true));
 const SHORTCUTS = {
-  'key-add': 'K', 'key-del': 'Delete', gesture: 'V', aspect: 'F', lens: 'L', target: 'T',
+  'key-add': 'K', 'okey-add': 'K', 'key-del': 'Delete', gesture: 'V', aspect: 'F', lens: 'L', target: 'T',
   dup: 'Ctrl+D', del: 'Delete', deselect: 'Esc', add: 'N', 'cam-here': 'C',
 };
 
@@ -36,7 +36,6 @@ const app = {
   recording: false,
   selectedId: null,
   gizmo: 'translate',
-  objPanel: 'main',       // main | motion
   gesture: 'orbit',       // orbit | look
   nudgeOpen: false,
   nudge: null,            // {f, r, u} أثناء الضغط على أزرار التحريك
@@ -87,9 +86,27 @@ const timeline = new Timeline($('#timeline'), {
     renderTimeline();
   },
   keyMoveEnd: () => { app.drag = null; commit(); },
-  barTap: (id) => {
+  objKeyTap: (objId, keyId) => {
+    const k = app.project.objects.find((o) => o.id === objId)?.keys.find((x) => x.id === keyId);
+    if (!k) return;
+    pause();
     if (app.mode !== 'objects') setMode('objects');
-    select(id);
+    if (app.selectedId !== objId) select(objId);
+    applyTime(k.t);
+  },
+  objKeyMove: (objId, keyId, t) => {
+    const o = app.project.objects.find((x) => x.id === objId);
+    const k = o?.keys.find((x) => x.id === keyId);
+    if (!k || k.t === t) return;
+    if (o.keys.some((x) => x !== k && Math.abs(x.t - t) < A.KEY_EPS)) return;
+    if (!app.drag) { pushUndo(); app.drag = { key: keyId }; }
+    k.t = t;
+    o.keys.sort((a, b) => a.t - b.t);
+    pause();
+    if (app.selectedId !== objId) { if (app.mode !== 'objects') setMode('objects'); select(objId); }
+    applyTime(t);
+    stage.updateMotionViz(app.project.objects);
+    renderTimeline();
   },
 });
 
@@ -335,7 +352,6 @@ const selected = () => app.project.objects.find((o) => o.id === app.selectedId) 
 
 function select(id) {
   app.selectedId = id;
-  if (!id) app.objPanel = 'main';
   syncControls();
   stage.updateMotionViz(app.project.objects);
   renderUI();
@@ -363,9 +379,8 @@ function duplicateObject() {
   const c = JSON.parse(JSON.stringify(o));
   c.id = S.uid();
   c.name = `${o.name} نسخة`;
-  const shift = (trs) => trs && (trs.pos[0] += 1.5);
-  shift(c);
-  if (c.motion) { shift(c.motion.a); shift(c.motion.b); }
+  c.pos[0] += 1.5;
+  for (const k of c.keys) { k.id = S.uid(); k.pos[0] += 1.5; }
   app.project.objects.push(c);
   stage.syncObjects(app.project.objects);
   applyTime(app.time);
@@ -410,88 +425,74 @@ function renameObject() {
   commit();
 }
 
-/** يحفظ مكان المجسم بعد التعديل، وبيعرف إذا لازم يعدّل البداية A أو النهاية B. */
-function commitTransform(id, trs, start) {
+/** يحفظ مكان المجسم بعد التعديل.
+ *  إذا العنصر إله مفاتيح حركة، التعديل بينحفظ تلقائيًا كمفتاح بالوقت الحالي. */
+function commitTransform(id, trs) {
   const o = app.project.objects.find((x) => x.id === id);
   if (!o) return;
-  const where = A.motionEditTarget(o.motion, app.time);
-  const set = (dst) => { dst.pos = trs.pos.slice(); dst.rot = trs.rot.slice(); dst.scale = trs.scale.slice(); };
-  if (where === 'base') set(o);
-  else if (where === 'a') { set(o.motion.a); set(o); }
-  else if (where === 'b') set(o.motion.b);
-  else {
-    // بنص الحركة: بنزيح المسار كله
-    const d = trs.pos.map((v, i) => v - start.pos[i]);
-    for (const t of [o, o.motion.a, o.motion.b]) t.pos = t.pos.map((v, i) => v + d[i]);
-    if (app.gizmo !== 'translate') toast('للتدوير أو الحجم: روح لبداية أو نهاية الحركة');
+  if (o.keys.length) {
+    const added = setObjKey(o, trs);
+    if (added) toast(`مفتاح للعنصر عند ${fmt(A.snapTime(app.time))}`);
+  } else {
+    Object.assign(o, { pos: trs.pos.slice(), rot: trs.rot.slice(), scale: trs.scale.slice() });
   }
   applyTime(app.time);
   stage.updateMotionViz(app.project.objects);
   commit();
 }
 
-/* ---------- الحركة A → B ---------- */
+/* ---------- مفاتيح حركة المجسمات ---------- */
 
-function setMotionPoint(which) {
+const currentObjKey = (o) => (o ? A.keyAt(o.keys, app.time) : null);
+
+/** بيضيف أو بيحدّث مفتاح بالوقت الحالي. بيرجع true إذا المفتاح جديد. */
+function setObjKey(o, trs) {
+  const t = A.snapTime(app.time);
+  const data = { t, pos: trs.pos.slice(), rot: trs.rot.slice(), scale: trs.scale.slice() };
+  const k = A.keyAt(o.keys, t);
+  if (k) Object.assign(k, data);
+  else o.keys.push({ id: S.uid(), ease: 'smooth', ...data });
+  o.keys.sort((a, b) => a.t - b.t);
+  if (o.keys.length === 1) Object.assign(o, { pos: data.pos.slice(), rot: data.rot.slice(), scale: data.scale.slice() });
+  return !k;
+}
+
+function addObjKey() {
   const o = selected();
   if (!o) return;
-  const p = app.project;
-  if (which === 'b' && !o.motion?.a) return toast('عيّن البداية A أولاً');
+  pushUndo();
+  const first = !o.keys.length;
+  const added = setObjKey(o, stage.readTRS(o.id));
+  applyTime(A.snapTime(app.time));
+  stage.updateMotionViz(app.project.objects);
+  commit();
+  if (first) toast('أول مفتاح ✓ — حرّك المؤشر لوقت تاني وانقل العنصر، والمفتاح بينحفظ لحاله', 4500);
+  else toast(added ? `مفتاح للعنصر عند ${fmt(app.time)}` : 'تم تحديث المفتاح');
+}
+
+function deleteObjKey() {
+  const o = selected();
+  const k = currentObjKey(o);
+  if (!k) return;
   pushUndo();
   const trs = stage.readTRS(o.id);
-  const t = A.snapTime(app.time);
-  if (which === 'a') {
-    const m = (o.motion ||= { a: null, b: null, start: 0, dur: 3, ease: 'smooth' });
-    m.a = trs;
-    Object.assign(o, { pos: trs.pos.slice(), rot: trs.rot.slice(), scale: trs.scale.slice() });
-    m.start = A.clamp(t, 0, p.duration - 0.1);
-    m.dur = A.clamp(m.dur, 0.1, p.duration - m.start);
-    toast(m.b ? 'تم تحديث البداية A' : 'تم تعيين A ✓ — حرّك المؤشر للوقت اللي بدك، انقل العنصر، واضغط B', 4200);
-  } else {
-    const m = o.motion;
-    m.b = trs;
-    if (t > m.start + 0.05) m.dur = A.snapTime(t - m.start);
-    m.dur = A.clamp(m.dur, 0.1, p.duration - m.start);
-    Object.assign(o, { pos: m.a.pos.slice(), rot: m.a.rot.slice(), scale: m.a.scale.slice() });
-    toast(`الحركة جاهزة: ${fmt(m.start)} ← ${fmt(m.start + m.dur)}`);
-  }
-  applyTime(app.time);
-  stage.updateMotionViz(p.objects);
-  commit();
-}
-
-function editMotion(field, delta) {
-  const o = selected();
-  const m = o?.motion;
-  if (!m) return;
-  pushUndo();
-  const D = app.project.duration;
-  if (field === 'start') m.start = A.clamp(A.snapTime(m.start + delta), 0, D - 0.1);
-  if (field === 'dur') m.dur = A.snapTime(m.dur + delta);
-  if (field === 'ease') m.ease = m.ease === 'linear' ? 'smooth' : 'linear';
-  m.dur = A.clamp(m.dur, 0.1, D - m.start);
-  applyTime(app.time);
-  commit();
-}
-
-function promptMotion(field) {
-  const m = selected()?.motion;
-  if (!m) return;
-  const v = parseFloat(prompt(field === 'start' ? 'وقت البداية (ثانية)' : 'المدة (ثانية)', m[field]));
-  if (!isFinite(v)) return;
-  editMotion(field, v - m[field]);
-}
-
-function removeMotion() {
-  const o = selected();
-  if (!o?.motion) return;
-  pushUndo();
-  if (o.motion.a) Object.assign(o, { pos: o.motion.a.pos.slice(), rot: o.motion.a.rot.slice(), scale: o.motion.a.scale.slice() });
-  o.motion = null;
+  o.keys = o.keys.filter((x) => x !== k);
+  // آخر مفتاح انحذف: العنصر بيضل بمكانه الحالي
+  if (!o.keys.length) Object.assign(o, { pos: trs.pos, rot: trs.rot, scale: trs.scale });
   applyTime(app.time);
   stage.updateMotionViz(app.project.objects);
   commit();
-  toast('تم حذف الحركة');
+  toast(o.keys.length ? 'تم حذف المفتاح' : 'تم حذف المفتاح — العنصر صار ثابت');
+}
+
+function toggleObjKeyEase() {
+  const k = currentObjKey(selected());
+  if (!k) return;
+  pushUndo();
+  k.ease = k.ease === 'linear' ? 'smooth' : 'linear';
+  applyTime(app.time);
+  stage.updateMotionViz(app.project.objects);
+  commit();
 }
 
 /* ==========================================================================
@@ -644,10 +645,14 @@ function renderActions(force = false) {
   const k = currentKey();
   const dirty = camDirty();
   const o = selected();
-  const sig = JSON.stringify([app.mode, app.objPanel, app.gizmo, app.gesture, app.nudgeOpen, k?.id, k?.ease, dirty, app.playing,
-    p.aspect, app.cam.targetObj, Math.round(app.cam.lens), o && [o.id, o.name, o.color, o.motion], p.objects.length]);
+  const ok = currentObjKey(o);
+  const sig = JSON.stringify([app.mode, app.gizmo, app.gesture, app.nudgeOpen, k?.id, k?.ease, dirty, app.playing,
+    p.aspect, app.cam.targetObj, Math.round(app.cam.lens), o && [o.id, o.name, o.color, o.keys.length], ok?.id, ok?.ease, p.objects.length]);
   if (!force && sig === lastActionsSig) return;
   lastActionsSig = sig;
+  // لما يتغير الوضع أو العنصر المحدد، الصف بيرجع لأوله عشان الزر الأساسي يبين
+  const ctx = `${app.mode}|${app.selectedId || ''}`;
+  if (ctx !== renderActions.ctx) { renderActions.ctx = ctx; el.scrollLeft = 0; }
 
   let html = '';
   if (app.mode === 'camera') {
@@ -673,45 +678,31 @@ function renderActions(force = false) {
     }
     html += btn('cam-here', 'camera', 'الكاميرا من هنا');
     html += `<div class="hint">اضغط على عنصر لتحديده</div>`;
-  } else if (app.objPanel === 'motion') {
-    const m = o.motion || {};
-    html += btn('motion-back', 'back', 'رجوع');
-    html += btn('motion-a', 'pinA', m.a ? 'A ✓' : 'تعيين A', m.a ? 'lit' : 'primary obj');
-    html += btn('motion-b', 'flag', m.b ? 'B ✓' : 'تعيين B', m.b ? 'lit' : (m.a ? 'primary obj' : ''));
-    if (m.a) {
-      html += stepper('start', 'يبدأ', m.start);
-      html += stepper('dur', 'المدة', m.dur);
-      html += btn('motion-ease', m.ease === 'linear' ? 'right' : 'motion', m.ease === 'linear' ? 'خطي' : 'ناعم');
-      html += btn('motion-del', 'trash', 'حذف الحركة', 'danger');
-    } else {
-      html += `<div class="hint">ضع العنصر بمكان البداية واضغط A</div>`;
-    }
   } else {
+    html += btn('okey-add', 'key', ok ? 'تحديث مفتاح العنصر' : 'مفتاح حركة للعنصر', 'primary obj');
+    if (ok) {
+      html += btn('okey-del', 'trash', 'حذف المفتاح', 'danger');
+      html += btn('okey-ease', ok.ease === 'linear' ? 'right' : 'motion', ok.ease === 'linear' ? 'خطي' : 'ناعم');
+    }
+    if (!o.keys.length) html += `<div class="hint">◆ = نقطة بالحركة. بعدها حرّك المؤشر وانقل العنصر</div>`;
     html += `<button class="act name-chip" data-act="rename" style="--c:${o.color}"><i></i><span>${esc(o.name)}</span></button>`;
     html += `<div class="seg mini">${[['translate', 'move', 'تحريك'], ['rotate', 'rotate', 'تدوير'], ['scale', 'scale', 'حجم']]
       .map(([m, i, l]) => `<button data-act="gizmo" data-v="${m}" class="${app.gizmo === m ? 'on' : ''}">${icon(i, 20)}<span>${l}</span></button>`).join('')}</div>`;
-    html += btn('motion', 'motion', o.motion?.b ? 'حركة ✓' : 'حركة A→B', o.motion?.b ? 'lit' : '');
     html += btn('dup', 'copy', 'نسخ');
     html += btn('color', 'palette', 'لون');
     html += btn('obj-num', 'hash', 'أرقام');
-    html += btn('del', 'trash', 'حذف', 'danger');
+    html += btn('del', 'trash', 'حذف العنصر', 'danger');
     html += btn('deselect', 'check', 'تم');
   }
   el.innerHTML = html;
 }
 
-function stepper(field, label, v) {
-  return `<div class="stepper"><button data-act="step" data-f="${field}" data-d="-0.5">${icon('minus', 18)}</button>
-    <button class="val" data-act="step-edit" data-f="${field}"><small>${label}</small>${fmt(v)}</button>
-    <button data-act="step" data-f="${field}" data-d="0.5">${icon('plus', 18)}</button></div>`;
-}
-
 function renderTimeline() {
   const p = app.project;
-  const bars = p.objects.filter((o) => o.motion?.a && o.motion?.b).map((o) => ({
-    id: o.id, name: o.name, color: o.color, start: o.motion.start, dur: o.motion.dur, selected: o.id === app.selectedId,
+  const objKeys = p.objects.filter((o) => o.keys.length).map((o) => ({
+    id: o.id, name: esc(o.name), color: o.color, keys: o.keys, selected: o.id === app.selectedId,
   }));
-  timeline.render({ duration: p.duration, keys: app.keys, bars, time: app.time });
+  timeline.render({ duration: p.duration, keys: app.keys, objKeys, time: app.time });
 }
 
 function renderTransport() {
@@ -735,8 +726,9 @@ function updateTimeUI() {
   timeline.setTime(app.time);
   // نحدّث الإبراز على المفاتيح لما المؤشر يدخل أو يطلع منها
   const k = currentKey();
-  if ((k?.id || null) !== updateTimeUI.lastKey) {
-    updateTimeUI.lastKey = k?.id || null;
+  const kSig = `${k?.id || ''}|${currentObjKey(selected())?.id || ''}`;
+  if (kSig !== updateTimeUI.lastKey) {
+    updateTimeUI.lastKey = kSig;
     if (!app.playing) renderTimeline();
   }
   updateCamUI();
@@ -1044,7 +1036,7 @@ const HELP_TOUCH = `<ul class="help">
       <li><b>إصبعين:</b> سحب = Pan، قرص = Dolly / Zoom</li>
       <li><b>وضع "التفاف":</b> الكاميرا بتلف بمكانها (Pan / Tilt)</li>
       <li><b>مفاتيح الكاميرا:</b> حرّك المؤشر بالشريط ← حرّك الكاميرا ← اضغط ◆</li>
-      <li><b>حركة عنصر:</b> حدّده ← حركة A→B ← A بالبداية، B بالنهاية</li>
+      <li><b>حركة عنصر:</b> حدّده ← ◆ ← حرّك المؤشر وانقل العنصر (المفتاح بينحفظ لحاله)</li>
     </ul>`;
 
 const HELP_DESKTOP = `<ul class="help">
@@ -1052,11 +1044,12 @@ const HELP_DESKTOP = `<ul class="help">
       <li><b>سحب بالزر اليمين أو Shift:</b> Pan</li>
       <li><b>العجلة:</b> لقدام / لورا &nbsp;·&nbsp; <b>Shift + العجلة:</b> يمين / يسار &nbsp;·&nbsp; <b>Alt + العجلة:</b> فوق / تحت</li>
       <li><b>مفاتيح الكاميرا:</b> حرّك المؤشر ← حرّك الكاميرا ← <kbd>K</kbd></li>
+      <li><b>حركة عنصر:</b> حدّده ← <kbd>K</kbd> ← حرّك المؤشر وانقل العنصر (المفتاح بينحفظ لحاله)</li>
     </ul>
     <h4>اختصارات الكيبورد</h4>
     <div class="keys">
       <span><kbd>Space</kbd> تشغيل / إيقاف</span>
-      <span><kbd>K</kbd> إضافة / تحديث مفتاح</span>
+      <span><kbd>K</kbd> مفتاح (كاميرا أو العنصر المحدد)</span>
       <span><kbd>Delete</kbd> حذف المفتاح أو العنصر</span>
       <span><kbd>Ctrl</kbd>+<kbd>Z</kbd> تراجع</span>
       <span><kbd>←</kbd> <kbd>→</kbd> ‎0.1s ‏(مع Shift ثانية)</span>
@@ -1190,14 +1183,9 @@ $('#actions').addEventListener('click', (e) => {
     },
     rename: renameObject,
     gizmo: () => { app.gizmo = b.dataset.v; stage.transform.setMode(app.gizmo); renderActions(true); },
-    motion: () => { app.objPanel = 'motion'; renderActions(true); },
-    'motion-back': () => { app.objPanel = 'main'; renderActions(true); },
-    'motion-a': () => setMotionPoint('a'),
-    'motion-b': () => setMotionPoint('b'),
-    'motion-ease': () => editMotion('ease', 0),
-    'motion-del': removeMotion,
-    step: () => editMotion(b.dataset.f, parseFloat(b.dataset.d)),
-    'step-edit': () => promptMotion(b.dataset.f),
+    'okey-add': addObjKey,
+    'okey-del': deleteObjKey,
+    'okey-ease': toggleObjKeyEase,
     dup: duplicateObject,
     color: cycleColor,
     'obj-num': openObjNumbers,
@@ -1266,7 +1254,6 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     if (sheetOpen) closeSheet();
     else if (app.preview) exitPreview();
-    else if (app.objPanel === 'motion') { app.objPanel = 'main'; renderActions(true); }
     else if (app.selectedId) select(null);
     return;
   }
@@ -1281,7 +1268,7 @@ document.addEventListener('keydown', (e) => {
   const step = e.shiftKey ? 1 : 0.1;
   const run = {
     Space: () => (app.playing ? pause() : play()),
-    KeyK: () => !app.preview && addKey(),
+    KeyK: () => !app.preview && (app.mode === 'objects' && app.selectedId ? addObjKey() : addKey()),
     Enter: () => !app.preview && app.mode === 'camera' && addKey(),
     Delete: () => (app.mode === 'camera' ? deleteKey() : deleteObject()),
     Backspace: () => (app.mode === 'camera' ? deleteKey() : deleteObject()),
@@ -1424,4 +1411,4 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 
 // للاختبار الآلي فقط
-window.__blk = { app, stage, applyTime, addKey, play, pause, setMode, addObject, select, setMotionPoint, A };
+window.__blk = { app, stage, applyTime, addKey, play, pause, setMode, addObject, select, addObjKey, A };

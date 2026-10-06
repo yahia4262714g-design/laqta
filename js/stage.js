@@ -9,10 +9,10 @@ import {
   CanvasTexture, RepeatWrapping, SRGBColorSpace, Mesh, MeshLambertMaterial, MeshBasicMaterial, PlaneGeometry, BoxGeometry,
   SphereGeometry, CylinderGeometry, CapsuleGeometry, OctahedronGeometry, EdgesGeometry,
   LineSegments, LineBasicMaterial, LineDashedMaterial, Line, BufferGeometry,
-  Float32BufferAttribute, Group, Vector2, Vector3, Quaternion, Euler, Raycaster, MathUtils,
+  Float32BufferAttribute, Group, Vector2, Vector3, Raycaster, MathUtils,
   OrbitControls, TransformControls,
 } from '../vendor/three.js';
-import { ASPECTS, fovFromLens, motionProgress } from './anim.js';
+import { ASPECTS, fovFromLens, evalObject, sampleObjectPath } from './anim.js';
 
 const BG = 0x0b0c0f;
 const AMBER = 0xffb020;
@@ -34,7 +34,6 @@ const EDGE_MAT = new LineBasicMaterial({ color: 0x050608, transparent: true, opa
 const SEL_MAT = new LineBasicMaterial({ color: AMBER });
 const NOSE_GEO = new BoxGeometry(0.2, 0.08, 0.14);
 
-const _a = new Vector3(), _b = new Vector3(), _q0 = new Quaternion(), _q1 = new Quaternion(), _e = new Euler();
 
 /** يوقف أي زخم متبقي بالـ OrbitControls بعد ما نحط الكاميرا بمكان جديد برمجيًا. */
 function stopInertia(c) {
@@ -215,25 +214,16 @@ export class Stage {
     this.objects.delete(id);
   }
 
-  /** يطبّق أماكن المجسمات بالوقت t (مع حركات A → B). */
+  /** يطبّق أماكن المجسمات بالوقت t (من مفاتيح حركتها إذا عندها). */
   applyObjects(objects, t, skipId = null) {
     for (const o of objects) {
       if (o.id === skipId) continue;
       const g = this.objects.get(o.id);
       if (!g) continue;
-      const u = motionProgress(o.motion, t);
-      if (u === null) {
-        g.position.fromArray(o.pos);
-        g.rotation.set(o.rot[0], o.rot[1], o.rot[2]);
-        g.scale.fromArray(o.scale);
-      } else {
-        const { a, b } = o.motion;
-        g.position.lerpVectors(_a.fromArray(a.pos), _b.fromArray(b.pos), u);
-        _q0.setFromEuler(_e.set(a.rot[0], a.rot[1], a.rot[2]));
-        _q1.setFromEuler(_e.set(b.rot[0], b.rot[1], b.rot[2]));
-        g.quaternion.slerpQuaternions(_q0, _q1, u);
-        g.scale.lerpVectors(_a.fromArray(a.scale), _b.fromArray(b.scale), u);
-      }
+      const v = evalObject(o.keys, t) || o;
+      g.position.fromArray(v.pos);
+      g.rotation.set(v.rot[0], v.rot[1], v.rot[2]);
+      g.scale.fromArray(v.scale);
     }
     this.needsRender = true;
   }
@@ -251,29 +241,29 @@ export class Stage {
     return this.objects.get(id)?.position || null;
   }
 
-  /** أشباح شفافة لنقطتي A و B للمجسم المحدد + خط الحركة لكل المجسمات. */
+  /** مسار حركة كل مجسم، ونقاط المفاتيح وأشباحها للمجسم المحدد. */
   updateMotionViz(objects) {
     for (const c of this.motionViz.children) {
       if (c.isLine) c.geometry.dispose();
-      else if (c.material?.dispose) c.material.dispose();
+      if (c.material && c.material !== DOT_MAT) c.material.dispose();
     }
     this.motionViz.clear();
     for (const o of objects) {
-      const m = o.motion;
-      if (!m || !m.a) continue;
+      const keys = o.keys || [];
+      if (!keys.length) continue;
       const sel = o.id === this.selectedId;
-      if (m.b) {
-        const line = new Line(new BufferGeometry(), new LineBasicMaterial({ color: o.color, transparent: true, opacity: sel ? 1 : 0.5 }));
-        line.geometry.setAttribute('position', new Float32BufferAttribute([...m.a.pos, ...m.b.pos], 3));
+      const pts = sampleObjectPath(keys);
+      if (pts.length) {
+        const line = new Line(new BufferGeometry(), new LineBasicMaterial({ color: o.color, transparent: true, opacity: sel ? 1 : 0.45 }));
+        line.geometry.setAttribute('position', new Float32BufferAttribute(pts.flat(), 3));
         this.motionViz.add(line);
       }
       if (!sel) continue;
-      for (const [trs, op] of [[m.a, 0.35], [m.b, 0.6]]) {
-        if (!trs) continue;
-        const ghost = new Mesh(geo(o.type), new MeshBasicMaterial({ color: o.color, wireframe: true, transparent: true, opacity: op }));
-        ghost.position.fromArray(trs.pos);
-        ghost.rotation.set(trs.rot[0], trs.rot[1], trs.rot[2]);
-        ghost.scale.fromArray(trs.scale);
+      for (const k of keys) {
+        const ghost = new Mesh(geo(o.type), new MeshBasicMaterial({ color: o.color, wireframe: true, transparent: true, opacity: 0.28 }));
+        ghost.position.fromArray(k.pos);
+        ghost.rotation.set(k.rot[0], k.rot[1], k.rot[2]);
+        ghost.scale.fromArray(k.scale);
         this.motionViz.add(ghost);
       }
     }

@@ -2,8 +2,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { migrate } from '../js/store.js';
 import {
-  evalCamera, sortKeys, keyAt, motionProgress, motionEditTarget, fitToDuration,
+  evalCamera, evalObject, sampleObjectPath, sortKeys, keyAt, fitToDuration,
   fovFromLens, sampleCameraPath, snapTime,
 } from '../js/anim.js';
 
@@ -91,38 +92,55 @@ test('مسار الكاميرا للرسم', () => {
   assert.equal(sampleCameraPath([key(0, 0)]).length, 1);
 });
 
-test('حركة A → B: البداية والمدة والتنعيم', () => {
-  const m = { a: { pos: [0, 0, 0] }, b: { pos: [1, 0, 0] }, start: 2, dur: 4, ease: 'smooth' };
-  assert.equal(motionProgress(m, 0), 0);
-  assert.equal(motionProgress(m, 2), 0);
-  close(motionProgress(m, 4), 0.5);
-  assert.equal(motionProgress(m, 9), 1);
-  assert.ok(motionProgress(m, 2.4) < 0.1);
-  close(motionProgress({ ...m, ease: 'linear' }, 3), 0.25);
-  assert.equal(motionProgress({ ...m, b: null }, 3), null);
+const okey = (t, x, extra = {}) => ({ id: `o${t}`, t, pos: [x, 0.5, 0], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'smooth', ...extra });
+
+test('عنصر بدون مفاتيح = ثابت', () => {
+  assert.equal(evalObject([], 2), null);
+  assert.equal(evalObject(undefined, 2), null);
 });
 
-test('تعديل المجسم بيروح للطرف الصح من الحركة', () => {
-  const m = { a: {}, b: {}, start: 2, dur: 4 };
-  assert.equal(motionEditTarget(null, 1), 'base');
-  assert.equal(motionEditTarget({ ...m, b: null }, 9), 'base');
-  assert.equal(motionEditTarget(m, 1), 'a');
-  assert.equal(motionEditTarget(m, 2), 'a');
-  assert.equal(motionEditTarget(m, 4), 'both');
-  assert.equal(motionEditTarget(m, 6), 'b');
+test('حركة العنصر بالمفاتيح: ثابت قبل وبعد، ويمر بكل نقطة', () => {
+  const ks = [okey(1, 0), okey(3, 4), okey(6, 4.5)];
+  close(evalObject(ks, 0).pos[0], 0);
+  close(evalObject(ks, 9).pos[0], 4.5);
+  for (const k of ks) close(evalObject(ks, k.t).pos[0], k.pos[0]);
+  const mid = evalObject(ks, 2).pos[0];
+  assert.ok(mid > 0.5 && mid < 3.5, `${mid}`);
+});
+
+test('حركة العنصر الخطية = سرعة ثابتة', () => {
+  const ks = [okey(0, 0, { ease: 'linear' }), okey(4, 8)];
+  close(evalObject(ks, 1).pos[0], 2);
+});
+
+test('الدوران بياخد أقصر طريق (سيارة بتلف)', () => {
+  const a = 170 * Math.PI / 180, b = -170 * Math.PI / 180;
+  const ks = [okey(0, 0, { rot: [0, a, 0], ease: 'linear' }), okey(2, 0, { rot: [0, b, 0] })];
+  close(Math.abs(evalObject(ks, 1).rot[1]), Math.PI, 1e-9);
+});
+
+test('الحجم بيتحرك كمان', () => {
+  const ks = [okey(0, 0, { scale: [1, 1, 1], ease: 'linear' }), okey(2, 0, { scale: [3, 1, 1] })];
+  close(evalObject(ks, 1).scale[0], 2);
+});
+
+test('مسار العنصر للرسم', () => {
+  assert.equal(sampleObjectPath([okey(0, 0), okey(2, 4)], 10).length, 11);
+  assert.equal(sampleObjectPath([okey(0, 0)]).length, 0);
 });
 
 test('تقصير المدة بيحافظ على المفاتيح والحركات جوّا المشهد', () => {
   const p = {
     duration: 20,
     keys: [key(2, 0), key(12, 0), key(18, 0)],
-    objects: [{ motion: { a: {}, b: {}, start: 8, dur: 6 } }],
+    objects: [{ keys: [okey(8, 0), okey(14, 1), okey(19, 2)] }],
   };
   fitToDuration(p, 10);
   const ts = p.keys.map((k) => k.t).sort((a, b) => a - b);
   assert.ok(ts.every((t) => t <= 10));
   assert.equal(new Set(ts).size, 3, 'ما لازم يصيروا مفتاحين بنفس الوقت');
-  assert.ok(p.objects[0].motion.start + p.objects[0].motion.dur <= 10 + 1e-9);
+  const ot = p.objects[0].keys.map((k) => k.t);
+  assert.ok(ot.every((t) => t <= 10) && new Set(ot).size === 3, ot.join());
 });
 
 test('العدسة: نفس الإحساس بكل النسب', () => {
@@ -134,4 +152,16 @@ test('العدسة: نفس الإحساس بكل النسب', () => {
 test('تقريب الوقت لعُشر الثانية', () => {
   assert.equal(snapTime(2.96), 3);
   assert.equal(snapTime(0.04), 0);
+});
+
+test('مشروع قديم بحركة A → B بيتحول لمفتاحين', () => {
+  const p = { objects: [
+    { id: 'a', pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], motion: { a: { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] }, b: { pos: [5, 0, 0], rot: [0, 1, 0], scale: [1, 1, 1] }, start: 2, dur: 3, ease: 'smooth' } },
+    { id: 'b', pos: [1, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], motion: null },
+  ] };
+  migrate(p);
+  assert.deepEqual(p.objects[0].keys.map((k) => k.t), [2, 5]);
+  assert.equal(p.objects[0].keys[1].pos[0], 5);
+  assert.equal(p.objects[0].motion, undefined);
+  assert.deepEqual(p.objects[1].keys, []);
 });

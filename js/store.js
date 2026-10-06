@@ -26,7 +26,7 @@ export function makeObject(type, objects, at = [0, 0]) {
     pos: [at[0], TYPES[type].y, at[1]],
     rot: [0, 0, 0],
     scale: [1, 1, 1],
-    motion: null,
+    keys: [],               // مفاتيح حركة المجسم {id, t, pos, rot, scale, ease}
   };
 }
 
@@ -82,7 +82,23 @@ export function saveProject(p) {
 
 export function loadProject(id) {
   const p = readJSON(KEY(id), null);
-  return p && p.version === 1 ? p : null;
+  return p && p.version === 1 ? migrate(p) : null;
+}
+
+/** مشاريع قديمة كانت حركتها A → B: بتتحول لمفتاحين. */
+export function migrate(p) {
+  for (const o of p.objects) {
+    const m = o.motion;
+    if (!o.keys) o.keys = [];
+    if (m && m.a && m.b && !o.keys.length) {
+      o.keys = [
+        { id: uid(), t: m.start, pos: m.a.pos, rot: m.a.rot, scale: m.a.scale, ease: m.ease || 'smooth' },
+        { id: uid(), t: Math.round((m.start + m.dur) * 10) / 10, pos: m.b.pos, rot: m.b.rot, scale: m.b.scale, ease: 'smooth' },
+      ];
+    }
+    delete o.motion;
+  }
+  return p;
 }
 
 export function deleteProject(id) {

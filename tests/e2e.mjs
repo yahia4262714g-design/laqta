@@ -181,32 +181,32 @@ try {
   await page.waitForSelector('#sheet', { state: 'hidden' });
   s = await st();
   ok(s.objects === 2, 'إضافة كرة');
+  // حركة العنصر بالمفاتيح: ◆ عند 1s، وبعدين نقله عند 5s بينحفظ مفتاح لحاله
   await scrubTo(1);
-  await page.locator('[data-act="motion"]').tap();
-  await page.locator('[data-act="motion-a"]').tap();
+  await page.locator('[data-act="okey-add"]').tap();
   await scrubTo(5);
-  await page.locator('[data-act="motion-back"]').tap();
   await page.locator('[data-act="obj-num"]').tap();
   await page.locator('#px').fill('6');
   await page.locator('#px').dispatchEvent('change');
   await page.locator('#sheetClose').tap();
   await page.waitForSelector('#sheet', { state: 'hidden' });
-  await page.locator('[data-act="motion"]').tap();
-  await page.locator('[data-act="motion-b"]').tap();
-  const m = await page.evaluate(() => {
+  const ok1 = await page.evaluate(() => {
     const { app } = window.__blk;
-    return app.project.objects.find((o) => o.id === app.selectedId).motion;
+    return app.project.objects.find((o) => o.id === app.selectedId).keys.map((k) => [k.t, k.pos[0]]);
   });
-  ok(m.start === 1 && Math.abs(m.dur - 4) < 1e-6 && m.b.pos[0] === 6, 'حركة A→B: البداية 1s والمدة 4s', JSON.stringify({ s: m.start, d: m.dur, bx: m.b.pos[0] }));
-  ok(await page.locator('.tl-bar').count() === 1, 'شريط الحركة ظاهر على التايملاين');
+  ok(ok1.length === 2 && ok1[0][0] === 1 && ok1[1][0] === 5 && ok1[1][1] === 6, 'مفاتيح حركة العنصر: 1s و 5s (التاني انحفظ لحاله)', JSON.stringify(ok1));
+  ok(await page.locator('.tl-okey').count() === 2, 'مفاتيح العنصر ظاهرة على شريط الوقت');
   await shot('05-motion');
   await scrubTo(3);
   const mid = await page.evaluate(() => window.__blk.stage.objectPos(window.__blk.app.selectedId).x);
   ok(mid > 0.5 && mid < 5.5, 'المجسم بنص الطريق عند 3s', mid.toFixed(2));
+  await page.locator('.tl-okey').nth(1).tap();
+  ok(Math.abs(await page.evaluate(() => window.__blk.app.time) - 5) < 1e-6, 'النقر على مفتاح العنصر بينقل له');
+  await page.locator('[data-act="okey-ease"]').tap();
+  ok(await page.evaluate(() => { const { app } = window.__blk; return app.project.objects.find((o) => o.id === app.selectedId).keys[1].ease; }) === 'linear', 'ناعم / خطي لمفتاح العنصر');
 
   // --- قفل هدف الكاميرا على المجسم المتحرك
   const sphereId = await page.evaluate(() => window.__blk.app.selectedId);
-  await page.locator('[data-act="motion-back"]').tap();
   await page.locator('[data-act="deselect"]').tap();
   await page.locator('#modeSeg [data-mode="camera"]').tap();
   await page.locator('[data-act="target"]').tap();
@@ -299,7 +299,7 @@ try {
   await page.reload();
   await page.waitForFunction(() => window.__blk);
   await page.waitForTimeout(300);
-  const re = await page.evaluate(() => ({ keys: window.__blk.app.project.keys.length, objs: window.__blk.app.project.objects.length, D: window.__blk.app.project.duration, motion: !!window.__blk.app.project.objects[1]?.motion?.b }));
+  const re = await page.evaluate(() => ({ keys: window.__blk.app.project.keys.length, objs: window.__blk.app.project.objects.length, D: window.__blk.app.project.duration, motion: window.__blk.app.project.objects[1]?.keys.length === 2 }));
   ok(re.keys === saved.keys && re.objs === 2 && re.D === 5 && re.motion, 'المشروع رجع كامل بعد إعادة الفتح', JSON.stringify(re));
 
   // --- مشروع جديد وفتح القديم
