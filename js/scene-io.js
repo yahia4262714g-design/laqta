@@ -248,7 +248,9 @@ RULES
 - Camera: a list of keys, at least one. pos = camera position; target = an object id (the camera keeps looking at it while it moves) or an [x,y,z] point; lens = focal length in mm, full frame (long side of the frame = 36 mm: 18 ultra-wide, 24 wide, 35 natural, 50 normal, 85 portrait, 135 tele); roll = dutch angle in degrees (optional).
 - "ease": "smooth" (default: eases in/out, passes smoothly through middle keys, never overshoots) or "linear" (constant speed). It applies to the segment that starts at that key. Two identical consecutive keys = a hold.
 - Build camera moves with keys: dolly in/out = move pos along the view line; truck = move pos and target sideways together; pedestal / crane = change pos y (crane: also arc the distance); orbit = keys around the target at the same distance and height, one key every 45° or less; pan / tilt = keep pos, move target; push in = closer pos or longer lens; follow = target the moving object.
-- Keep the camera at least 0.5 m from objects and above the ground (y ≥ 0.15) unless I ask otherwise. Keep the main subject inside the ${p.aspect} frame.
+- Framing check (do the maths for every key): visible width at distance d = d × W / lens and visible height = d × H / lens, with W×H = 20.25×36 for 9:16, 36×20.25 for 16:9, 36×36 for 1:1. Keep the subject within about 70% of the frame unless it is a deliberate close-up. Example: a car side-on (4.4 m) in 9:16 at 24 mm needs d ≥ 7.5 m.
+- Keep the camera at least 0.5 m from objects, never inside them, and above the ground (y ≥ 0.15) unless I ask otherwise. Keep the main subject inside the ${p.aspect} frame.
+- Think like a cinematographer: motivated moves, clear beats, no random jitter. Slow motion = space the object keys further apart in time after the key moment (speed ramp).
 
 CURRENT SCENE (edit it unless I ask for a new one)
 ${exportText(p)}
