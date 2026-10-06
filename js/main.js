@@ -926,14 +926,59 @@ function openObjNumbers() {
 }
 
 function openDurationSheet() {
-  openSheet('مدة المشهد', `<div class="chips big">${A.DURATIONS.map((d) => `<button class="chip${app.project.duration === d ? ' on' : ''}" data-d="${d}">${d}s</button>`).join('')}</div>
-    <p class="note">إذا قصّرت المدة، المفاتيح اللي بعد النهاية بتنتقل لآخر المشهد.</p>`,
-  (b) => b.addEventListener('click', (e) => {
-    const c = e.target.closest('[data-d]');
-    if (!c) return;
-    setDuration(+c.dataset.d);
-    closeSheet();
-  }));
+  let d = app.project.duration;
+  openSheet('مدة المشهد', `
+    <div class="dur">
+      <button class="dur-btn" data-dd="-1" aria-label="أقل">${icon('minus', 28)}</button>
+      <button class="dur-val" data-type-dur><b id="durVal"></b><span>ثانية</span></button>
+      <button class="dur-btn" data-dd="1" aria-label="أكثر">${icon('plus', 28)}</button>
+    </div>
+    <input id="durRange" type="range" min="${A.MIN_DURATION}" max="${A.MAX_DURATION}" step="1" value="${d}" aria-label="المدة بالثواني">
+    <div class="chips">${A.DURATIONS.map((x) => `<button class="chip" data-d="${x}">${x}s</button>`).join('')}</div>
+    <p class="note" id="durNote"></p>
+    <button class="apply-btn" data-apply>تطبيق</button>`,
+  (b) => {
+    const show = () => {
+      $('#durVal').textContent = d;
+      $('#durRange').value = d;
+      for (const c of b.querySelectorAll('[data-d]')) c.classList.toggle('on', +c.dataset.d === d);
+      const out = app.project.keys.filter((k) => k.t > d).length;
+      $('#durNote').textContent = out
+        ? `${out} من مفاتيح الكاميرا بعد ${d}s رح تنتقل لآخر المشهد (وفيك تتراجع).`
+        : 'من ثانية وحدة لحد 120 ثانية. اضغط على الرقم لتكتبه.';
+    };
+    const set = (v) => { d = A.clamp(Math.round(v) || 1, A.MIN_DURATION, A.MAX_DURATION); show(); };
+    show();
+    $('#durRange').addEventListener('input', (e) => set(+e.target.value));
+    let rep = 0;
+    const stopRep = () => clearInterval(rep);
+    for (const btn of b.querySelectorAll('[data-dd]')) {
+      // ضغطة = ثانية، ضغط مطوّل = يعدّ بسرعة
+      btn.addEventListener('pointerdown', () => {
+        const step = +btn.dataset.dd;
+        set(d + step);
+        stopRep();
+        let n = 0;
+        rep = setInterval(() => { if (++n > 4) set(d + step); }, 80);
+      });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(ev, stopRep);
+    }
+    b.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-d]');
+      if (c) return set(+c.dataset.d);
+      if (e.target.closest('[data-type-dur]')) {
+        const v = parseInt(prompt(`المدة بالثواني (${A.MIN_DURATION}–${A.MAX_DURATION})`, d), 10);
+        if (isFinite(v)) set(v);
+        return;
+      }
+      if (e.target.closest('[data-apply]')) {
+        stopRep();
+        if (d !== app.project.duration) setDuration(d);
+        closeSheet();
+        toast(`مدة المشهد: ${d} ثانية`);
+      }
+    });
+  });
 }
 
 function openMenu(view = 'main') {
@@ -1004,7 +1049,8 @@ const HELP_TOUCH = `<ul class="help">
 
 const HELP_DESKTOP = `<ul class="help">
       <li><b>سحب بالزر اليسار:</b> Orbit حول الهدف</li>
-      <li><b>سحب بالزر اليمين أو Shift:</b> Pan &nbsp;·&nbsp; <b>العجلة:</b> Dolly</li>
+      <li><b>سحب بالزر اليمين أو Shift:</b> Pan</li>
+      <li><b>العجلة:</b> لقدام / لورا &nbsp;·&nbsp; <b>Shift + العجلة:</b> يمين / يسار &nbsp;·&nbsp; <b>Alt + العجلة:</b> فوق / تحت</li>
       <li><b>مفاتيح الكاميرا:</b> حرّك المؤشر ← حرّك الكاميرا ← <kbd>K</kbd></li>
     </ul>
     <h4>اختصارات الكيبورد</h4>
@@ -1263,6 +1309,62 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => held.delete(e.code));
 window.addEventListener('blur', () => held.clear());
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ---------- عجلة الماوس ---------- */
+
+// العجلة = Dolly لقدام ولورا. العجلة الأفقية أو Shift = Truck يمين/يسار. Alt = Pedestal فوق/تحت.
+// لما توصل للهدف ما بتعلق: الهدف بيمشي معك لقدام.
+function wheelMove(pos, target, { fwd, right, up }, locked) {
+  const dir = target.map((v, i) => v - pos[i]);
+  const d = Math.hypot(...dir) || 1;
+  const f = dir.map((v) => v / d);
+  const hl = Math.hypot(f[0], f[2]) || 1;
+  const r = [-f[2] / hl, 0, f[0] / hl];
+  const step = Math.min(4, Math.max(0.12, d * 0.14));
+  // يمين / يسار / فوق / تحت: الكاميرا والهدف مع بعض (المسافة ما بتتغير)
+  const side = [0, 1, 2].map((i) => r[i] * right * step + (i === 1 ? up * step : 0));
+  let np = pos.map((v, i) => v + side[i]);
+  let nt = locked ? target : target.map((v, i) => v + side[i]);
+  if (fwd) {
+    // لقدام / لورا بنسبة من المسافة، فنقرة لورا بتلغي نقرة لقدام بالضبط
+    const nd = d * Math.pow(0.86, fwd);
+    const min = locked ? 0.35 : 0.5;
+    if (nd >= min || fwd < 0) np = nt.map((v, i) => v - f[i] * nd);
+    else if (!locked) {
+      // وصلنا للهدف: منكمل لقدام والهدف بيمشي معنا
+      const push = 0.12 * fwd + (d - min);
+      np = np.map((v, i) => v + f[i] * push);
+      nt = np.map((v, i) => v + f[i] * min);
+    }
+  }
+  return [np, nt];
+}
+
+canvas.addEventListener('wheel', (e) => {
+  if (app.preview) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();   // بدل زوم OrbitControls الضعيف
+  if (app.playing) return;
+  const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1;
+  let dy = e.deltaY * unit, dx = e.deltaX * unit;
+  if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+  const n = (v) => Math.max(-3, Math.min(3, v / 100));   // نقرة عجلة = خطوة وحدة
+  const m = e.altKey ? { fwd: 0, right: 0, up: n(-dy) } : { fwd: n(-dy), right: n(dx), up: 0 };
+  if (app.mode === 'camera') {
+    const cam = app.cam;
+    [cam.pos, cam.target] = wheelMove(cam.pos, cam.target, m, !!cam.targetObj);
+    stage.setShot(cam);
+    onCameraManual();
+  } else {
+    const c = stage.editorCam, t = stage.editorControls.target;
+    const [np, nt] = wheelMove(c.position.toArray(), t.toArray(), m, false);
+    c.position.fromArray(np);
+    t.fromArray(nt);
+    stage.editorControls.update();
+    stage.needsRender = true;
+    scheduleSave();
+  }
+}, { passive: false, capture: true });
 
 // منع تكبير الصفحة بالقرص على سفاري
 document.addEventListener('gesturestart', (e) => e.preventDefault());

@@ -21,18 +21,6 @@ export class LookControls {
     el.addEventListener('pointermove', (e) => this.move(e));
     el.addEventListener('pointerup', (e) => this.up(e));
     el.addEventListener('pointercancel', (e) => this.up(e));
-    el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
-  }
-
-  wheel(e) {
-    if (!this.enabled) return;
-    e.preventDefault();
-    const { pos, target } = this.api.get();
-    const dir = [target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]];
-    const dist = Math.hypot(...dir) || 1;
-    const k = (-e.deltaY / 100) * Math.max(0.3, dist * 0.12);
-    const move = dir.map((v) => (v / dist) * k);
-    this.api.set(pos.map((v, i) => v + move[i]), target.map((v, i) => v + move[i]));
   }
 
   down(e) {

@@ -5,7 +5,9 @@
 
 export const KEY_EPS = 0.05;        // مفتاحين أقرب من هيك = نفس المفتاح
 export const SENSOR = 36;           // الضلع الطويل للحساس بالمليمتر (Full Frame)
-export const DURATIONS = [5, 10, 15, 20, 30];
+export const DURATIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120];   // اختيارات سريعة
+export const MIN_DURATION = 1;
+export const MAX_DURATION = 120;
 export const ASPECTS = { '9:16': 9 / 16, '16:9': 16 / 9, '1:1': 1 };
 
 export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));

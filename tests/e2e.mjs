@@ -245,9 +245,29 @@ try {
   // --- مدة المشهد
   await page.locator('#btnDur').tap();
   await page.locator('.chip[data-d="5"]').tap();
+  await page.locator('[data-apply]').tap();
   await page.waitForSelector('#sheet', { state: 'hidden' });
   const after = await page.evaluate(() => ({ D: window.__blk.app.project.duration, ks: window.__blk.app.keys.map((k) => k.t) }));
   ok(after.D === 5 && after.ks.every((t) => t <= 5), 'تغيير المدة لـ 5s والمفاتيح جوّا', after.ks.join());
+
+  // --- مدة بأي عدد ثواني (+ و − ثانية ثانية)
+  await page.locator('#btnDur').tap();
+  for (let i = 0; i < 2; i++) await page.locator('[data-dd="1"]').tap();
+  ok(await page.locator('#durVal').textContent() === '7', 'زر + بيزيد ثانية وحدة', await page.locator('#durVal').textContent());
+  await page.locator('[data-dd="-1"]').tap();
+  await page.locator('[data-apply]').tap();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+  ok(await page.evaluate(() => window.__blk.app.project.duration) === 6, 'مدة 6 ثواني');
+  await page.locator('#btnDur').tap();
+  await page.locator('#durRange').fill('60');
+  await page.locator('[data-apply]').tap();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+  ok(await page.evaluate(() => window.__blk.app.project.duration) === 60, 'مدة 60 ثانية من السلايدر');
+  await shot('07b-60s');
+  await page.locator('#btnDur').tap();
+  await page.locator('.chip[data-d="5"]').tap();
+  await page.locator('[data-apply]').tap();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
 
   // --- المعاينة + التسجيل
   await page.locator('#btnPreview').tap();

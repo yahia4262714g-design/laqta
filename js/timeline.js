@@ -51,13 +51,16 @@ export class Timeline {
     this.state = state;
     const { duration } = state;
 
-    // التدريج
-    const step = duration <= 10 ? 1 : duration <= 20 ? 2 : 5;
+    // التدريج: خط لكل ثانية (ونص ثانية بالمدد القصيرة)، والأرقام بمسافة مريحة حسب العرض
+    const pxPerSec = (this.width - 2 * PAD) / duration;
+    const label = [1, 2, 5, 10, 15, 30, 60].find((n) => n * pxPerSec >= 34) || 60;
+    const tick = pxPerSec >= 24 ? 0.5 : pxPerSec >= 4 ? 1 : 5;
     let html = '';
-    for (let s = 0; s <= duration + 1e-6; s += 0.5) {
-      const major = Math.abs(s % step) < 1e-6;
-      const whole = Math.abs(s % 1) < 1e-6;
-      if (!whole && duration > 10) continue;
+    const n = Math.round(duration / tick);
+    for (let i = 0; i <= n; i++) {
+      const s = +(i * tick).toFixed(2);
+      const whole = Math.abs(s - Math.round(s)) < 1e-6;
+      const major = whole && Math.round(s) % label === 0;
       html += `<i class="${major ? 'mj' : whole ? 'mn' : 'hf'}" style="left:${this.x(s)}px">${major ? `<b>${s}s</b>` : ''}</i>`;
     }
     this.ruler.innerHTML = html;

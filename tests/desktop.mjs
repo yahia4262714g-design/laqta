@@ -61,6 +61,30 @@ try {
   await page.mouse.move(cx, cy); await page.mouse.down({ button: 'right' }); await page.mouse.move(cx + 120, cy + 40, { steps: 10 }); await page.mouse.up({ button: 'right' });
   await page.waitForTimeout(400);
   ok(dist(t0, (await st()).target) > 0.1, 'زر يمين = Pan');
+  await page.waitForTimeout(1500);   // نخلي زخم السحب يهدى
+
+  // العجلة: نقرة وحدة لازم تحرك بوضوح، وبتكمل لقدام حتى بعد الهدف
+  await page.mouse.move(cx, cy);
+  await page.mouse.wheel(0, -100); await page.mouse.wheel(0, 100);   // بيوقف أي زخم باقي من السحب
+  await page.waitForTimeout(150);
+  s = await st();
+  await page.mouse.wheel(0, -100); await page.waitForTimeout(150);
+  s2 = await st();
+  ok(dist(s.pos, s2.pos) > 0.1, 'نقرة عجلة وحدة = خطوة لقدام', `${dist(s.pos, s2.pos).toFixed(2)}m`);
+  await page.mouse.wheel(0, 100); await page.waitForTimeout(150);
+  { const b2 = await st(); ok(dist(s.pos, b2.pos) < 1e-3, 'نقرة لورا بترجعها لنفس المكان', `${s.pos.map((v) => v.toFixed(3))} → ${s2.pos.map((v) => v.toFixed(3))} → ${b2.pos.map((v) => v.toFixed(3))} d=${dist(s.pos, s.target).toFixed(2)}`); }
+  for (let i = 0; i < 40; i++) { await page.mouse.wheel(0, -100); await page.waitForTimeout(10); }
+  s2 = await st();
+  ok(dist(s.pos, s2.pos) > dist(s.pos, s.target), 'العجلة بتمشي لقدام وبتعدّي الهدف بدون ما تعلق', `${dist(s.pos, s2.pos).toFixed(1)}m`);
+  s = s2;
+  await page.mouse.wheel(250, 0); await page.waitForTimeout(150);
+  s2 = await st();
+  ok(dist(s.pos, s2.pos) > 0.1 && Math.abs(s.pos[1] - s2.pos[1]) < 1e-6, 'العجلة الأفقية = يمين / يسار');
+  await page.keyboard.down('Shift'); await page.mouse.wheel(0, 200); await page.keyboard.up('Shift'); await page.waitForTimeout(150);
+  ok(dist(s2.pos, (await st()).pos) > 0.1, 'Shift + العجلة = يمين / يسار');
+  s = await st();
+  await page.keyboard.down('Alt'); await page.mouse.wheel(0, -200); await page.keyboard.up('Alt'); await page.waitForTimeout(150);
+  ok((await st()).pos[1] > s.pos[1] + 0.1, 'Alt + العجلة = فوق');
 
   // كيبورد: مفاتيح ووقت
   await key('k');
@@ -100,7 +124,11 @@ try {
   await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx - 120, cy, { steps: 8 }); await page.mouse.up();
   await page.waitForTimeout(200);
   s2 = await st();
-  ok(dist(s.pos, s2.pos) < 1e-6 && dist(s.target, s2.target) > 0.1, 'V ثم سحب = Pan/Tilt بمكانها');
+  const ang = (() => {
+    const u = s.target.map((v, i) => v - s.pos[i]), w = s2.target.map((v, i) => v - s2.pos[i]);
+    return Math.acos(Math.min(1, u.reduce((acc, v, i) => acc + v * w[i], 0) / (Math.hypot(...u) * Math.hypot(...w)))) * 180 / Math.PI;
+  })();
+  ok(dist(s.pos, s2.pos) < 1e-6 && ang > 5, 'V ثم سحب = Pan/Tilt بمكانها', `لفّت ${ang.toFixed(0)}°`);
   await page.mouse.wheel(0, -300); await page.waitForTimeout(200);
   ok(dist(s2.pos, (await st()).pos) > 0.1, 'العجلة بوضع الالتفاف = Dolly');
   await key('v');
@@ -115,6 +143,10 @@ try {
   ok(s.objs === 2 && s.sel, 'إضافة شخص بنقرة');
   await key('r');
   ok((await st()).gizmo === 'rotate', 'R = تدوير');
+  const e0 = await page.evaluate(() => window.__blk.stage.editorCam.position.toArray());
+  await page.mouse.move(cx, cy); await page.mouse.wheel(0, -300); await page.waitForTimeout(150);
+  const e1 = await page.evaluate(() => window.__blk.stage.editorCam.position.toArray());
+  ok(dist(e0, e1) > 0.3, 'العجلة شغالة بوضع المجسمات كمان');
   await key('g');
   await key('Control+d');
   ok((await st()).objs === 3, 'Ctrl+D = نسخ');
@@ -123,6 +155,16 @@ try {
   await page.screenshot({ path: join(SHOTS, 'desktop-objects.png') });
   await key('Escape');
   ok(!(await st()).sel, 'Esc = إلغاء التحديد');
+
+  // مدة 60 ثانية وتدريج كل ثانية
+  await page.locator('#btnDur').click();
+  await page.locator('#durRange').fill('60');
+  await page.locator('[data-apply]').click();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+  const ticks = await page.evaluate(() => ({ all: document.querySelectorAll('.tl-ruler i.mj, .tl-ruler i.mn').length, labels: [...document.querySelectorAll('.tl-ruler b')].map((b) => b.textContent) }));
+  ok(ticks.all === 61, 'شريط الوقت فيه خط لكل ثانية من 0 لـ 60', `${ticks.all}`);
+  ok(ticks.labels.at(-1) === '60s', 'آخر رقم 60s', ticks.labels.join(' '));
+  await page.screenshot({ path: join(SHOTS, 'desktop-60s.png') });
 
   // القوائم والمعاينة
   await key('1');
