@@ -314,6 +314,29 @@ try {
   await page.waitForSelector('#sheet', { state: 'hidden' });
   ok((await st()).keys === saved.keys, 'فتح المشروع القديم');
 
+  // --- لصق مشهد من Claude
+  const reply = 'Here is your shot:\n```json\n' + JSON.stringify({
+    laqta: 1, name: 'Car orbit', duration: 8, aspect: '9:16',
+    objects: [{ id: 'car', type: 'rect', name: 'Car', pos: [-5, 0.7, 0], rot: [0, 90, 0], keys: [{ t: 0, pos: [-5, 0.7, 0] }, { t: 8, pos: [5, 0.7, 0], ease: 'linear' }] }],
+    camera: [{ t: 0, pos: [-5, 1.4, 6], target: 'car', lens: 35 }, { t: 4, pos: [0, 2, 6], target: 'car', lens: 35 }, { t: 8, pos: [6, 1.4, 4], target: 'car', lens: 50 }],
+  }) + '\n```';
+  const prevId = await page.evaluate(() => window.__blk.app.project.id);
+  await page.locator('#btnMenu').tap();
+  await page.locator('[data-m="paste"]').tap();
+  await page.locator('#sceneText').fill('{"objects":[{"type":"car"}],"camera":[{"pos":[0,1,5],"target":[0,0,0]}]}');
+  await page.locator('[data-p="import"]').tap();
+  ok((await page.locator('#sceneErr').textContent()).includes('"car"'), 'مشهد غلط = رسالة بتوضح الغلط', await page.locator('#sceneErr').textContent());
+  await shot('12-paste-error');
+  await page.locator('#sceneText').fill(reply);
+  await page.locator('[data-p="import"]').tap();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+  const imp = await page.evaluate(() => { const p = window.__blk.app.project; return { id: p.id, name: p.name, keys: p.keys.length, objs: p.objects.length, D: p.duration }; });
+  ok(imp.id !== prevId && imp.name === 'Car orbit' && imp.keys === 3 && imp.objs === 1 && imp.D === 8, 'استيراد مشهد Claude كمشروع جديد', JSON.stringify(imp));
+  await scrubTo(4);
+  const look = await page.evaluate(() => { const { app, stage } = window.__blk; return { t: app.cam.target, car: stage.objectPos(app.project.objects[0].id).toArray() }; });
+  ok(dist(look.t, look.car) < 1e-6 && Math.abs(look.car[0]) < 0.2, 'الكاميرا بتلحق السيارة بنص المشهد');
+  await shot('13-imported');
+
   // --- مقاسات الأزرار للمس
   const small = await page.evaluate(() => [...document.querySelectorAll('#topbar button, #actions button, #transport button')]
     .filter((b) => b.offsetParent && !b.closest('.seg')).map((b) => [b.className || b.id || b.dataset.act, b.getBoundingClientRect()]).filter(([, r]) => r.height < 44 || r.width < 36).map(([n, r]) => `${n}:${Math.round(r.width)}x${Math.round(r.height)}`));

@@ -11,6 +11,7 @@ import { Recorder } from './recorder.js';
 import { icon } from './icons.js';
 import * as A from './anim.js';
 import * as S from './store.js';
+import { importScene, exportText, claudePrompt } from './scene-io.js';
 
 const $ = (s) => document.querySelector(s);
 const DEG = 180 / Math.PI;
@@ -1009,6 +1010,11 @@ function openMenu(view = 'main') {
       <button class="tile" data-m="open">${icon('folder', 30)}<span>فتح مشروع</span></button>
       <button class="tile" data-m="new">${icon('plus', 30)}<span>مشروع جديد</span></button>
     </div>
+    <h4>Claude</h4>
+    <div class="grid2">
+      <button class="tile claude" data-m="paste">${icon('download', 30)}<span>لصق مشهد من Claude</span></button>
+      <button class="tile" data-m="copy">${icon('copy', 30)}<span>نسخ المشهد كنص</span></button>
+    </div>
     <h4>طريقة الاستخدام</h4>
     ${desktop ? HELP_DESKTOP : HELP_TOUCH}
     <p class="note">كل شي محفوظ تلقائيًا على هذا الجهاز فقط. ما في حساب ولا سحابة.</p>`,
@@ -1016,6 +1022,8 @@ function openMenu(view = 'main') {
     const m = e.target.closest('[data-m]')?.dataset.m;
     if (m === 'save') { closeSheet(); toast(saveNow() ? 'تم حفظ المشروع ✓' : 'ما قدرنا نحفظ — المساحة ممتلئة؟'); }
     if (m === 'open') openMenu('open');
+    if (m === 'paste') openPasteSheet();
+    if (m === 'copy') copyText(exportText(p), 'انتسخ المشهد ✓');
     if (m === 'new') {
       saveNow();
       pause();
@@ -1065,6 +1073,71 @@ const HELP_DESKTOP = `<ul class="help">
       <span><kbd>N</kbd> إضافة عنصر &nbsp; <kbd>Ctrl</kbd>+<kbd>D</kbd> نسخ</span>
       <span><kbd>P</kbd> معاينة &nbsp; <kbd>Esc</kbd> رجوع</span>
     </div>`;
+
+/* ---------- مشهد من Claude (نسخ ولصق) ---------- */
+
+async function copyText(text, done = 'انتسخ ✓') {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    ta.style.cssText = 'position:fixed;opacity:0;top:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch { /* لا شي */ }
+    ta.remove();
+  }
+  toast(done);
+}
+
+function openPasteSheet() {
+  openSheet('مشهد من Claude', `
+    <ol class="steps">
+      <li>اضغط <b>نسخ التعليمات</b> والصقها بمحادثة مع Claude.</li>
+      <li>اكتب تحتها شو اللقطة اللي بدك، مثلًا: <i>"سيارة ماشية من اليسار لليمين والكاميرا بتلف حواليها"</i>.</li>
+      <li>انسخ رد Claude كامل والصقه هون، واضغط <b>استيراد</b>.</li>
+    </ol>
+    <button class="wide-btn" data-p="prompt">${icon('copy', 22)}<span>نسخ التعليمات لـ Claude</span></button>
+    <textarea id="sceneText" dir="ltr" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="الصق رد Claude هون…"></textarea>
+    <p class="scene-err" id="sceneErr" role="alert"></p>
+    <div class="grid2">
+      <button class="wide-btn" data-p="clip">${icon('download', 22)}<span>لصق من الحافظة</span></button>
+      <button class="apply-btn" data-p="import">استيراد المشهد</button>
+    </div>
+    <p class="note">المشهد بينفتح كمشروع جديد، ومشروعك الحالي بيضل محفوظ.</p>`,
+  (b) => b.addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-p]')?.dataset.p;
+    const ta = $('#sceneText');
+    const err = $('#sceneErr');
+    if (a === 'prompt') return copyText(claudePrompt(app.project), 'انتسخت التعليمات ✓ — الصقها لـ Claude واكتب لقطتك');
+    if (a === 'clip') {
+      try {
+        ta.value = await navigator.clipboard.readText();
+        err.textContent = '';
+      } catch {
+        ta.focus();
+        toast('اضغط مطولًا على المربع واختار "لصق"');
+      }
+      return;
+    }
+    if (a === 'import') {
+      let np;
+      try {
+        np = importScene(ta.value);
+      } catch (ex) {
+        err.textContent = ex.message || 'ما قدرنا نقرأ المشهد';
+        return;
+      }
+      saveNow();
+      pause();
+      loadState(np);
+      saveNow();
+      closeSheet();
+      const n = np.objects.length, k = np.keys.length;
+      toast(`تم استيراد "${np.name}": ${n} عناصر · ${k} مفاتيح كاميرا · ${np.duration}s`, 3500);
+    }
+  }));
+}
 
 function openVideoSheet() {
   const v = app.video;
@@ -1411,4 +1484,4 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 
 // للاختبار الآلي فقط
-window.__blk = { app, stage, applyTime, addKey, play, pause, setMode, addObject, select, addObjKey, A };
+window.__blk = { importScene, exportText, claudePrompt, app, stage, applyTime, addKey, play, pause, setMode, addObject, select, addObjKey, A };

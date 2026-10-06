@@ -30,7 +30,9 @@ const ok = (c, name, d = '') => { if (!c) failed++; console.log(`${c ? '  ok  ' 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 860 } })).newPage();
+const context = await browser.newContext({ viewport: { width: 1440, height: 860 } });
+await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://localhost:${PORT}` });
+const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const st = () => page.evaluate(() => {
@@ -191,6 +193,21 @@ try {
   ok(ticks.all === 61, 'شريط الوقت فيه خط لكل ثانية من 0 لـ 60', `${ticks.all}`);
   ok(ticks.labels.at(-1) === '60s', 'آخر رقم 60s', ticks.labels.join(' '));
   await page.screenshot({ path: join(SHOTS, 'desktop-60s.png') });
+
+  // نسخ تعليمات Claude ولصق الرد من الحافظة
+  await page.locator('#btnMenu').click();
+  await page.locator('[data-m="paste"]').click();
+  await page.locator('[data-p="prompt"]').click();
+  await page.waitForTimeout(200);
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  ok(clip.includes('RULES') && clip.includes('CURRENT SCENE') && clip.includes('"camera"'), 'نسخ التعليمات لـ Claude', `${clip.length} حرف`);
+  await page.evaluate(() => navigator.clipboard.writeText('```json\n{"name":"From clipboard","duration":4,"objects":[{"id":"box","type":"cube"}],"camera":[{"t":0,"pos":[0,1.5,5],"target":"box"},{"t":4,"pos":[3,1.5,4],"target":"box"}]}\n```'));
+  await page.locator('[data-p="clip"]').click();
+  await page.waitForTimeout(150);
+  await page.locator('[data-p="import"]').click();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+  ok(await page.evaluate(() => window.__blk.app.project.name) === 'From clipboard', 'لصق من الحافظة واستيراد');
+  await page.screenshot({ path: join(SHOTS, 'desktop-imported.png') });
 
   // القوائم والمعاينة
   await key('1');
