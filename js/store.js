@@ -12,6 +12,30 @@ export const TYPES = {
   wall:     { label: 'جدار',    y: 1.25 },
 };
 
+/** صورة منتج: لوحة مسطحة أو أسطوانة (علبة/قنينة). الارتفاع الافتراضي بالمتر. */
+export const IMAGE_SHAPES = {
+  card: { label: 'لوحة مسطحة', height: 0.3 },
+  can: { label: 'علبة / قنينة', height: 0.15 },
+};
+
+export function makeImageObject(objects, at, { image, aspect, shape }) {
+  const n = objects.filter((o) => o.type === 'image').length + 1;
+  const h = IMAGE_SHAPES[shape].height;
+  return {
+    id: uid(),
+    type: 'image',
+    name: `منتج ${n}`,
+    color: '#ffffff',
+    image,
+    shape,
+    aspect,
+    pos: [at[0], h / 2, at[1]],
+    rot: [0, 0, 0],
+    scale: [h, h, h],
+    keys: [],
+  };
+}
+
 export const PALETTE = ['#d9773b', '#4f9dde', '#5fbf7a', '#c95f8f', '#d6c15a', '#9a8cf0', '#b8bcc6'];
 
 export const uid = () => Math.random().toString(36).slice(2, 10);

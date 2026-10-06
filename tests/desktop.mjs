@@ -34,7 +34,7 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 860 
 await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://localhost:${PORT}` });
 const page = await context.newPage();
 const errors = [];
-page.on('pageerror', (e) => errors.push(e.message));
+page.on('pageerror', (e) => { errors.push(e.message); console.log('PAGEERROR', e.stack?.split('\n').slice(0, 4).join(' | ')); });
 const st = () => page.evaluate(() => {
   const { app } = window.__blk;
   return { t: app.time, keys: app.project.keys.length, pos: app.cam.pos, target: app.cam.target, playing: app.playing, mode: app.mode, objs: app.project.objects.length, gizmo: app.gizmo, sel: app.selectedId };
@@ -93,7 +93,7 @@ try {
   await key('Shift+ArrowRight', 3);
   ok(Math.abs((await st()).t - 3) < 1e-6, 'Shift+→ = ثانية لقدام', `${(await st()).t}`);
   const p0 = (await st()).pos;
-  await page.keyboard.down('KeyD'); await page.waitForTimeout(400); await page.keyboard.up('KeyD');
+  await page.keyboard.down('KeyD'); await page.waitForTimeout(800); await page.keyboard.up('KeyD');
   ok(dist(p0, (await st()).pos) > 0.2, 'D = Truck يمين');
   const p1 = (await st()).pos;
   await page.keyboard.down('KeyE'); await page.waitForTimeout(300); await page.keyboard.up('KeyE');
@@ -208,6 +208,28 @@ try {
   await page.waitForSelector('#sheet', { state: 'hidden' });
   ok(await page.evaluate(() => window.__blk.app.project.name) === 'From clipboard', 'لصق من الحافظة واستيراد');
   await page.screenshot({ path: join(SHOTS, 'desktop-imported.png') });
+
+  // وصف الحركة للبرومبت
+  await page.locator('#btnMenu').click();
+  await page.locator('[data-m="describe"]').click();
+  const desc = await page.locator('#describeText').inputValue();
+  ok(desc.includes('CAMERA (timed):') && /\d\.\d–\d+\.\d s:/.test(desc), 'وصف الحركة بيطلع بالثواني', desc.split('\n')[0]);
+  await page.locator('[data-d="copy"]').click();
+  await page.waitForTimeout(150);
+  ok((await page.evaluate(() => navigator.clipboard.readText())) === desc, 'نسخ وصف الحركة');
+  await page.screenshot({ path: join(SHOTS, 'desktop-describe.png') });
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+
+  // فتح القائمة كذا مرة وبعدين "مشروع جديد" لازم يعمل مشروع واحد بس
+  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('blk.index') || '[]').length);
+  for (let i = 0; i < 3; i++) { await page.locator('#btnMenu').click(); await page.keyboard.press('Escape'); await page.waitForSelector('#sheet', { state: 'hidden' }); }
+  await page.locator('#btnMenu').click();
+  await page.locator('[data-m="new"]').click();
+  await page.waitForSelector('#sheet', { state: 'hidden' });
+  await page.waitForTimeout(200);
+  const after = await page.evaluate(() => JSON.parse(localStorage.getItem('blk.index') || '[]').length);
+  ok(after === before + 1, 'فتح القائمة كذا مرة ما بيكرر الأوامر', `${before} → ${after}`);
 
   // القوائم والمعاينة
   await key('1');

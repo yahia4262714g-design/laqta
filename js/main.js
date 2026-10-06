@@ -12,6 +12,8 @@ import { icon } from './icons.js';
 import * as A from './anim.js';
 import * as S from './store.js';
 import { importScene, exportText, claudePrompt } from './scene-io.js';
+import { putImage, readImageFile } from './images.js';
+import { describeProject } from './describe.js';
 
 const $ = (s) => document.querySelector(s);
 const DEG = 180 / Math.PI;
@@ -442,6 +444,81 @@ function commitTransform(id, trs) {
   commit();
 }
 
+/* ---------- صورة المنتج ---------- */
+
+const imageInput = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+imageInput.style.display = 'none';
+document.body.appendChild(imageInput);
+
+/** نافذة اختيار شكل المنتج، وبعدها مكتبة الصور. replaceId = تبديل صورة عنصر موجود. */
+function openImageSheet(replaceId = null) {
+  const cur = replaceId && app.project.objects.find((o) => o.id === replaceId);
+  openSheet(cur ? 'تبديل صورة المنتج' : 'صورة منتج', `
+    <div class="grid2">${Object.entries(S.IMAGE_SHAPES).map(([k, d]) => `
+      <button class="tile${cur && cur.shape === k ? ' on' : ''}" data-shape="${k}">${icon(k === 'can' ? 'can' : 'frame', 34)}<span>${d.label}</span></button>`).join('')}
+    </div>
+    <p class="note"><b>لوحة مسطحة:</b> كرتونة، بوستر، أو أي منتج من قدّام. <b>علبة / قنينة:</b> الصورة بتلف على الوجه الأمامي للأسطوانة.<br>
+    الأفضل صورة <b>PNG بخلفية شفافة</b> للمنتج. الصورة بتطلع بألوانها الحقيقية بدون إضاءة، وبتضل على جهازك بس.</p>`,
+  (b) => b.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-shape]');
+    if (!t) return;
+    imageInput.value = '';
+    imageInput.onchange = () => {
+      const f = imageInput.files?.[0];
+      if (f) addImageObject(f, t.dataset.shape, replaceId);
+    };
+    imageInput.click();
+  }));
+}
+
+async function addImageObject(file, shape, replaceId) {
+  closeSheet();
+  toast('عم نجهّز الصورة…');
+  let img;
+  try {
+    img = await readImageFile(file);
+  } catch (e) {
+    return toast(e.message || 'ما قدرنا نقرأ الصورة');
+  }
+  const imageId = S.uid();
+  try {
+    await putImage(imageId, img.dataUrl);
+  } catch {
+    return toast('ما في مساحة كافية لحفظ الصورة على الجهاز');
+  }
+  pushUndo();
+  const p = app.project;
+  const old = replaceId && p.objects.find((o) => o.id === replaceId);
+  if (old) {
+    Object.assign(old, { image: imageId, aspect: img.aspect, shape });
+    stage.syncObjects(p.objects);
+    applyTime(app.time);
+    select(old.id);
+    commit();
+    return toast('تم تبديل الصورة');
+  }
+  const t = stage.editorControls.target;
+  const o = S.makeImageObject(p.objects, [Math.round(t.x * 2) / 2, Math.round(t.z * 2) / 2], { image: imageId, aspect: img.aspect, shape });
+  p.objects.push(o);
+  stage.syncObjects(p.objects);
+  applyTime(app.time);
+  if (app.mode !== 'objects') setMode('objects');
+  select(o.id);
+  commit();
+  toast(`تمت إضافة المنتج (ارتفاعه ${Math.round(o.scale[1] * 100)} سم) — غيّر الحجم من "حجم" أو "أرقام"`, 4000);
+}
+
+function toggleImageShape() {
+  const o = selected();
+  if (o?.type !== 'image') return;
+  pushUndo();
+  o.shape = o.shape === 'can' ? 'card' : 'can';
+  stage.syncObjects(app.project.objects);
+  applyTime(app.time);
+  select(o.id);
+  commit();
+}
+
 /* ---------- مفاتيح حركة المجسمات ---------- */
 
 const currentObjKey = (o) => (o ? A.keyAt(o.keys, app.time) : null);
@@ -648,7 +725,7 @@ function renderActions(force = false) {
   const o = selected();
   const ok = currentObjKey(o);
   const sig = JSON.stringify([app.mode, app.gizmo, app.gesture, app.nudgeOpen, k?.id, k?.ease, dirty, app.playing,
-    p.aspect, app.cam.targetObj, Math.round(app.cam.lens), o && [o.id, o.name, o.color, o.keys.length], ok?.id, ok?.ease, p.objects.length]);
+    p.aspect, app.cam.targetObj, Math.round(app.cam.lens), o && [o.id, o.name, o.color, o.keys.length, o.shape], ok?.id, ok?.ease, p.objects.length]);
   if (!force && sig === lastActionsSig) return;
   lastActionsSig = sig;
   // لما يتغير الوضع أو العنصر المحدد، الصف بيرجع لأوله عشان الزر الأساسي يبين
@@ -674,6 +751,7 @@ function renderActions(force = false) {
       // بالشاشة الكبيرة: الأشكال ظاهرة مباشرة باللوحة الجانبية
       html += `<div class="hint">إضافة عنصر</div>`;
       html += Object.entries(S.TYPES).map(([t, d]) => btn('add-type', t, d.label, 'shape', `data-type="${t}"`)).join('');
+      html += btn('add-image', 'image', 'صورة منتج', 'shape lit');
     } else {
       html += btn('add', 'plus', 'إضافة عنصر', 'primary obj');
     }
@@ -690,7 +768,12 @@ function renderActions(force = false) {
     html += `<div class="seg mini">${[['translate', 'move', 'تحريك'], ['rotate', 'rotate', 'تدوير'], ['scale', 'scale', 'حجم']]
       .map(([m, i, l]) => `<button data-act="gizmo" data-v="${m}" class="${app.gizmo === m ? 'on' : ''}">${icon(i, 20)}<span>${l}</span></button>`).join('')}</div>`;
     html += btn('dup', 'copy', 'نسخ');
-    html += btn('color', 'palette', 'لون');
+    if (o.type === 'image') {
+      html += btn('img-replace', 'image', 'تبديل الصورة');
+      html += btn('img-shape', o.shape === 'can' ? 'can' : 'frame', o.shape === 'can' ? 'أسطوانة' : 'لوحة');
+    } else {
+      html += btn('color', 'palette', 'لون');
+    }
     html += btn('obj-num', 'hash', 'أرقام');
     html += btn('del', 'trash', 'حذف العنصر', 'danger');
     html += btn('deselect', 'check', 'تم');
@@ -759,10 +842,14 @@ function updateCamUI() {
 
 function openSheet(title, body, onReady) {
   $('#sheetTitle').textContent = title;
-  $('#sheetBody').innerHTML = body;
+  // عنصر جديد لكل نافذة: هيك مستمعات النوافذ القديمة ما بتضل شغالة على النافذة الجديدة
+  const old = $('#sheetBody');
+  const fresh = old.cloneNode(false);
+  fresh.innerHTML = body;
+  old.replaceWith(fresh);
   $('#sheet').hidden = false;
   requestAnimationFrame(() => $('#sheet').classList.add('open'));
-  onReady?.($('#sheetBody'));
+  onReady?.(fresh);
 }
 
 function closeSheet() {
@@ -772,8 +859,10 @@ function closeSheet() {
 
 function openAddSheet() {
   openSheet('إضافة عنصر', `<div class="grid3">${Object.entries(S.TYPES)
-    .map(([t, d]) => `<button class="tile" data-type="${t}">${icon(t, 34)}<span>${d.label}</span></button>`).join('')}</div>`,
+    .map(([t, d]) => `<button class="tile" data-type="${t}">${icon(t, 34)}<span>${d.label}</span></button>`).join('')}</div>
+    <button class="wide-btn product-btn" data-image="1">${icon('image', 24)}<span>صورة منتج حقيقية</span></button>`,
   (b) => b.addEventListener('click', (e) => {
+    if (e.target.closest('[data-image]')) return openImageSheet();
     const t = e.target.closest('[data-type]');
     if (!t) return;
     closeSheet();
@@ -1015,6 +1104,7 @@ function openMenu(view = 'main') {
       <button class="tile claude" data-m="paste">${icon('download', 30)}<span>لصق مشهد من Claude</span></button>
       <button class="tile" data-m="copy">${icon('copy', 30)}<span>نسخ المشهد كنص</span></button>
     </div>
+    <button class="wide-btn describe-btn" data-m="describe">${icon('motion', 22)}<span>وصف الحركة للبرومبت (Seedance / Kling…)</span></button>
     <h4>طريقة الاستخدام</h4>
     ${desktop ? HELP_DESKTOP : HELP_TOUCH}
     <p class="note">كل شي محفوظ تلقائيًا على هذا الجهاز فقط. ما في حساب ولا سحابة.</p>`,
@@ -1023,6 +1113,7 @@ function openMenu(view = 'main') {
     if (m === 'save') { closeSheet(); toast(saveNow() ? 'تم حفظ المشروع ✓' : 'ما قدرنا نحفظ — المساحة ممتلئة؟'); }
     if (m === 'open') openMenu('open');
     if (m === 'paste') openPasteSheet();
+    if (m === 'describe') openDescribeSheet();
     if (m === 'copy') copyText(exportText(p), 'انتسخ المشهد ✓');
     if (m === 'new') {
       saveNow();
@@ -1073,6 +1164,20 @@ const HELP_DESKTOP = `<ul class="help">
       <span><kbd>N</kbd> إضافة عنصر &nbsp; <kbd>Ctrl</kbd>+<kbd>D</kbd> نسخ</span>
       <span><kbd>P</kbd> معاينة &nbsp; <kbd>Esc</kbd> رجوع</span>
     </div>`;
+
+/* ---------- وصف الحركة للبرومبت ---------- */
+
+function openDescribeSheet() {
+  const text = describeProject(app.project);
+  openSheet('وصف الحركة', `
+    <p class="note" style="margin-top:0">وصف إنجليزي لحركة الكاميرا والعناصر بالثواني، محسوب من مفاتيحك. الصقه ببرومبت أداة الفيديو مع الفيديو المرجعي.</p>
+    <textarea id="describeText" dir="ltr" readonly spellcheck="false">${esc(text)}</textarea>
+    <button class="apply-btn" data-d="copy">${icon('copy', 20)} نسخ الوصف</button>
+    <p class="note">نصيحة: إذا الأداة بتعطي مقاطع قصيرة، قسّم المشهد وانسخ الأسطر الخاصة بكل مقطع.</p>`,
+  (b) => b.addEventListener('click', (e) => {
+    if (e.target.closest('[data-d="copy"]')) copyText(text, 'انتسخ وصف الحركة ✓');
+  }));
+}
 
 /* ---------- مشهد من Claude (نسخ ولصق) ---------- */
 
@@ -1245,6 +1350,9 @@ $('#actions').addEventListener('click', (e) => {
     'cam-num': openCamNumbers,
     add: openAddSheet,
     'add-type': () => addObject(b.dataset.type),
+    'add-image': () => openImageSheet(),
+    'img-replace': () => openImageSheet(app.selectedId),
+    'img-shape': toggleImageShape,
     'cam-here': () => {
       app.cam.pos = stage.editorCam.position.toArray();
       app.cam.target = stage.editorControls.target.toArray();
@@ -1484,4 +1592,4 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 
 // للاختبار الآلي فقط
-window.__blk = { importScene, exportText, claudePrompt, app, stage, applyTime, addKey, play, pause, setMode, addObject, select, addObjKey, A };
+window.__blk = { describeProject, importScene, exportText, claudePrompt, app, stage, applyTime, addKey, play, pause, setMode, addObject, select, addObjKey, A };

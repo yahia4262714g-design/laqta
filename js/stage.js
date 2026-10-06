@@ -6,13 +6,14 @@
 
 import {
   WebGLRenderer, Scene, Color, Fog, PerspectiveCamera, AmbientLight, DirectionalLight,
-  CanvasTexture, RepeatWrapping, SRGBColorSpace, Mesh, MeshLambertMaterial, MeshBasicMaterial, PlaneGeometry, BoxGeometry,
+  CanvasTexture, RepeatWrapping, SRGBColorSpace, DoubleSide, Mesh, MeshLambertMaterial, MeshBasicMaterial, PlaneGeometry, BoxGeometry,
   SphereGeometry, CylinderGeometry, CapsuleGeometry, OctahedronGeometry, EdgesGeometry,
   LineSegments, LineBasicMaterial, LineDashedMaterial, Line, BufferGeometry,
   Float32BufferAttribute, Group, Vector2, Vector3, Raycaster, MathUtils,
   OrbitControls, TransformControls,
 } from '../vendor/three.js';
 import { ASPECTS, fovFromLens, evalObject, sampleObjectPath } from './anim.js';
+import { getImage, loadImg, textureCanvas } from './images.js';
 
 const BG = 0x0b0c0f;
 const AMBER = 0xffb020;
@@ -174,7 +175,7 @@ export class Stage {
     const seen = new Set();
     for (const o of objects) {
       let g = this.objects.get(o.id);
-      if (g && g.userData.type !== o.type) { this.removeObject(o.id); g = null; }
+      if (g && (g.userData.type !== o.type || g.userData.sig !== imageSig(o))) { this.removeObject(o.id); g = null; }
       if (!g) g = this.buildObject(o);
       g.userData.mat.color.set(o.color);
       seen.add(o.id);
@@ -185,6 +186,7 @@ export class Stage {
   }
 
   buildObject(o) {
+    if (o.type === 'image') return this.buildImage(o);
     const root = new Group();
     const mat = new MeshLambertMaterial({ color: o.color });
     const mesh = new Mesh(geo(o.type), mat);
@@ -204,12 +206,50 @@ export class Stage {
     return root;
   }
 
+  /** صورة منتج بألوانها الحقيقية (بدون إضاءة) عشان التغليف واللوغو يضلوا متل ما هم. */
+  buildImage(o) {
+    const root = new Group();
+    const shape = o.shape === 'can' ? 'can' : 'card';
+    const aspect = Math.min(10, Math.max(0.1, o.aspect || 1));
+    const mat = new MeshBasicMaterial({ color: 0xffffff, transparent: true, alphaTest: 0.04, side: shape === 'card' ? DoubleSide : 0 });
+    let geom, mats = mat;
+    if (shape === 'can') {
+      // محيط الوجه الأمامي = عرض الصورة، فنصف القطر = العرض ÷ π
+      const r = aspect / Math.PI;
+      geom = new CylinderGeometry(r, r, 1, 48);
+      geom.rotateY(Math.PI);   // نص الخامة (الصورة) يطلع على +Z (قدّام) ومش معكوس
+      mats = [mat, new MeshLambertMaterial({ color: 0x9a9ea8 }), new MeshLambertMaterial({ color: 0x6a6e78 })];
+    } else {
+      geom = new PlaneGeometry(aspect, 1);
+    }
+    const mesh = new Mesh(geom, mats);
+    mesh.userData.pick = o.id;
+    const edges = new LineSegments(new EdgesGeometry(geom, 30), EDGE_MAT);
+    root.add(mesh, edges);
+    root.userData = { id: o.id, type: o.type, sig: imageSig(o), mat, edges, mesh, own: [geom, edges.geometry, ...(Array.isArray(mats) ? mats.slice(1) : [])] };
+    getImage(o.image).then(loadImg).then((img) => {
+      if (this.objects.get(o.id) !== root) return;
+      const tex = new CanvasTexture(textureCanvas(img, shape));
+      tex.colorSpace = SRGBColorSpace;
+      tex.anisotropy = 4;
+      mat.map = tex;
+      mat.needsUpdate = true;
+      root.userData.own.push(tex);
+      this.needsRender = true;
+    });
+    this.scene.add(root);
+    this.objects.set(o.id, root);
+    this.pickables.push(mesh);
+    return root;
+  }
+
   removeObject(id) {
     const g = this.objects.get(id);
     if (!g) return;
     if (this.transform.object === g) this.transform.detach();
     this.scene.remove(g);
     g.userData.mat.dispose();
+    for (const x of g.userData.own || []) x.dispose();
     this.pickables = this.pickables.filter((m) => m !== g.userData.mesh);
     this.objects.delete(id);
   }
@@ -260,7 +300,8 @@ export class Stage {
       }
       if (!sel) continue;
       for (const k of keys) {
-        const ghost = new Mesh(geo(o.type), new MeshBasicMaterial({ color: o.color, wireframe: true, transparent: true, opacity: 0.28 }));
+        const g = this.objects.get(o.id)?.userData.mesh.geometry || geo(o.type);
+        const ghost = new Mesh(g, new MeshBasicMaterial({ color: o.type === 'image' ? 0xffb020 : o.color, wireframe: true, transparent: true, opacity: 0.28 }));
         ghost.position.fromArray(k.pos);
         ghost.rotation.set(k.rot[0], k.rot[1], k.rot[2]);
         ghost.scale.fromArray(k.scale);
@@ -273,11 +314,11 @@ export class Stage {
   select(id, gizmo = true) {
     if (this.selectedId) {
       const prev = this.objects.get(this.selectedId);
-      if (prev) { prev.userData.edges.material = EDGE_MAT; prev.userData.mat.emissive.setHex(0); }
+      if (prev) { prev.userData.edges.material = EDGE_MAT; prev.userData.mat.emissive?.setHex(0); }
     }
     this.selectedId = id;
     const g = id ? this.objects.get(id) : null;
-    if (g) { g.userData.edges.material = SEL_MAT; g.userData.mat.emissive.setHex(0x2a1c00); }
+    if (g) { g.userData.edges.material = SEL_MAT; g.userData.mat.emissive?.setHex(0x2a1c00); }
     if (g && gizmo) this.transform.attach(g);
     else this.transform.detach();
     this.needsRender = true;
@@ -429,6 +470,8 @@ function gridTexture(renderer) {
   tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   return tex;
 }
+
+const imageSig = (o) => (o.type === 'image' ? `${o.image}|${o.shape}|${o.aspect}` : '');
 
 const DOT_GEO = new SphereGeometry(0.09, 12, 8);
 const DOT_MAT = new MeshBasicMaterial({ color: AMBER });

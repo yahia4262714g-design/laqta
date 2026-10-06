@@ -52,6 +52,8 @@ const P = {
   cylinder: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/>',
   person: '<circle cx="12" cy="4.5" r="2.5"/><rect x="8.5" y="8.5" width="7" height="13" rx="3.5"/>',
   wall: '<rect x="3" y="5" width="18" height="14"/><path d="M3 12h18M9 5v7M15 12v7"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>',
+  can: '<ellipse cx="12" cy="5" rx="6" ry="2.2"/><path d="M6 5v14c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V5"/><path d="M6 9.5c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><circle cx="12" cy="17.5" r=".6" fill="currentColor"/>',
 };
 

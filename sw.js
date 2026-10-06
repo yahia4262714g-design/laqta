@@ -4,7 +4,7 @@
    المشاريع نفسها محفوظة بـ localStorage، مش هون.
    ========================================================================== */
 
-const CACHE = 'laqta-v7';
+const CACHE = 'laqta-v8';
 
 const ASSETS = [
   './',
@@ -21,6 +21,8 @@ const ASSETS = [
   './js/recorder.js',
   './js/icons.js',
   './js/scene-io.js',
+  './js/images.js',
+  './js/describe.js',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
