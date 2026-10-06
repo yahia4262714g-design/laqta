@@ -1,0 +1,12 @@
+{
+  "name": "laqta",
+  "version": "1.0.0",
+  "private": true,
+  "description": "لقطة — أداة Blocking للكاميرا على الآيفون",
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 8080",
+    "test": "node --test tests/anim.test.mjs",
+    "test:e2e": "node tests/e2e.mjs"
+  }
+}

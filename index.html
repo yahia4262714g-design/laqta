@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>لقطة · Blocking</title>
+  <meta name="description" content="أداة بسيطة لعمل Blocking للمشاهد السينمائية وحركة الكاميرا قبل توليدها بالذكاء الاصطناعي.">
+  <meta name="theme-color" content="#0b0c0f">
+  <meta name="color-scheme" content="dark">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="لقطة">
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+  <link rel="modulepreload" href="vendor/three.js">
+</head>
+<body data-mode="camera">
+  <header id="topbar">
+    <button id="btnMenu" class="icon-btn" aria-label="القائمة"></button>
+    <div id="modeSeg" class="seg"></div>
+    <button id="btnUndo" class="icon-btn" aria-label="تراجع"></button>
+    <button id="btnPreview" class="btn-preview"></button>
+  </header>
+
+  <main id="viewport">
+    <canvas id="c"></canvas>
+    <div id="frame"><i></i></div>
+    <div id="hud"></div>
+    <div id="nudge" hidden>
+      <button data-n="1,0,0" data-i="up" aria-label="للأمام"></button>
+      <button data-n="0,0,1" data-i="rise" aria-label="للأعلى"></button>
+      <button data-n="0,-1,0" data-i="left" aria-label="يسار"></button>
+      <button data-n="0,1,0" data-i="right" aria-label="يمين"></button>
+      <button data-n="-1,0,0" data-i="down" aria-label="للخلف"></button>
+      <button data-n="0,0,-1" data-i="sink" aria-label="للأسفل"></button>
+    </div>
+  </main>
+
+  <section id="dock">
+    <div id="actions" class="actions"></div>
+    <div id="timeline"></div>
+    <div id="transport">
+      <button id="btnStop" class="icon-btn" aria-label="إيقاف"></button>
+      <button id="btnPlay" class="play-btn" aria-label="تشغيل"></button>
+      <button id="btnLoop" class="icon-btn" aria-label="تكرار"></button>
+      <span id="timeLabel">0.0 / 10s</span>
+      <button id="btnDur" class="chip-btn" aria-label="مدة المشهد"></button>
+    </div>
+  </section>
+
+  <div id="previewUI">
+    <div class="pv-top">
+      <button id="pvExit" class="icon-btn" aria-label="خروج"></button>
+      <span id="pvTime">0.0 / 10s</span>
+      <button id="pvAspect" class="chip-btn">9:16</button>
+    </div>
+    <div class="pv-bottom">
+      <div id="pvScrub"><div id="pvBar"></div></div>
+      <div class="pv-btns">
+        <button id="pvStop" class="icon-btn" aria-label="إيقاف"></button>
+        <button id="pvPlay" class="play-btn" aria-label="تشغيل"></button>
+        <button id="pvRec" class="rec-btn"></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-panel" role="dialog" aria-modal="true">
+      <div class="sheet-head">
+        <h3 id="sheetTitle"></h3>
+        <button id="sheetClose" class="icon-btn" aria-label="إغلاق"></button>
+      </div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
