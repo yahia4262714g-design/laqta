@@ -21,6 +21,18 @@ export class LookControls {
     el.addEventListener('pointermove', (e) => this.move(e));
     el.addEventListener('pointerup', (e) => this.up(e));
     el.addEventListener('pointercancel', (e) => this.up(e));
+    el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
+  }
+
+  wheel(e) {
+    if (!this.enabled) return;
+    e.preventDefault();
+    const { pos, target } = this.api.get();
+    const dir = [target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]];
+    const dist = Math.hypot(...dir) || 1;
+    const k = (-e.deltaY / 100) * Math.max(0.3, dist * 0.12);
+    const move = dir.map((v) => (v / dist) * k);
+    this.api.set(pos.map((v, i) => v + move[i]), target.map((v, i) => v + move[i]));
   }
 
   down(e) {
@@ -55,7 +67,9 @@ export class LookControls {
     const dist = Math.hypot(...dir) || 1;
     const dx = cur.cx - prev.cx, dy = cur.cy - prev.cy;
 
-    if (cur.n === 1) {
+    // ماوس: زر يمين أو Shift = Pan بدل اللف
+    const mousePan = e.pointerType === 'mouse' && ((e.buttons & 2) || e.shiftKey);
+    if (cur.n === 1 && !mousePan) {
       const k = this.api.radPerPx();
       let yaw = Math.atan2(dir[0], dir[2]) + dx * k;
       let pitch = Math.asin(Math.max(-1, Math.min(1, dir[1] / dist))) + dy * k;
@@ -75,7 +89,7 @@ export class LookControls {
     const rl = Math.hypot(right[0], right[2]) || 1;
     right[0] /= rl; right[2] /= rl;
     const w = this.api.worldPerPx();
-    const fwd = (cur.dist - prev.dist) * w * 1.5;
+    const fwd = cur.n > 1 ? (cur.dist - prev.dist) * w * 1.5 : 0;
     const move = [
       -right[0] * dx * w + f[0] * fwd,
       dy * w + f[1] * fwd,

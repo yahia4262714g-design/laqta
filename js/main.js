@@ -15,6 +15,14 @@ import * as S from './store.js';
 const $ = (s) => document.querySelector(s);
 const DEG = 180 / Math.PI;
 const LENSES = [14, 18, 24, 35, 50, 85, 135];
+// كمبيوتر بماوس (مش لمس)
+const desktop = matchMedia('(hover: hover) and (pointer: fine)').matches;
+const wideLayout = matchMedia('(min-width: 980px) and (min-height: 560px)');
+wideLayout.addEventListener?.('change', () => renderActions(true));
+const SHORTCUTS = {
+  'key-add': 'K', 'key-del': 'Delete', gesture: 'V', aspect: 'F', lens: 'L', target: 'T',
+  dup: 'Ctrl+D', del: 'Delete', deselect: 'Esc', add: 'N', 'cam-here': 'C',
+};
 
 const app = {
   project: null,
@@ -295,13 +303,13 @@ function toggleKeyEase() {
 
 /* ---------- تحريك الكاميرا بالأزرار ---------- */
 
-function nudgeStep(dt) {
-  const n = app.nudge;
+function nudgeStep(dt, keys = null) {
+  const n = app.nudge || keys;
   if (!n) return;
   const cam = app.cam;
   const locked = !!cam.targetObj;
   const d = dist(cam.pos, cam.target);
-  const speed = Math.max(0.8, d * 0.6) * dt;
+  const speed = Math.max(0.8, d * 0.6) * dt * (n.fast ? 3 : 1);
   let fx = cam.target[0] - cam.pos[0], fz = cam.target[2] - cam.pos[2];
   const fl = Math.hypot(fx, fz) || 1;
   fx /= fl; fz /= fl;
@@ -612,7 +620,8 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function btn(action, ico, label, cls = '', extra = '') {
-  return `<button class="act ${cls}" data-act="${action}" ${extra}>${icon(ico)}<span>${label}</span></button>`;
+  const tip = desktop && SHORTCUTS[action] ? ` title="${SHORTCUTS[action]}"` : '';
+  return `<button class="act ${cls}" data-act="${action}"${tip} ${extra}>${icon(ico)}<span>${label}</span></button>`;
 }
 
 function renderUI() {
@@ -655,7 +664,13 @@ function renderActions(force = false) {
     html += btn('aspect', 'frame', p.aspect);
     html += btn('cam-num', 'hash', 'أرقام');
   } else if (!o) {
-    html += btn('add', 'plus', 'إضافة عنصر', 'primary obj');
+    if (wideLayout.matches) {
+      // بالشاشة الكبيرة: الأشكال ظاهرة مباشرة باللوحة الجانبية
+      html += `<div class="hint">إضافة عنصر</div>`;
+      html += Object.entries(S.TYPES).map(([t, d]) => btn('add-type', t, d.label, 'shape', `data-type="${t}"`)).join('');
+    } else {
+      html += btn('add', 'plus', 'إضافة عنصر', 'primary obj');
+    }
     html += btn('cam-here', 'camera', 'الكاميرا من هنا');
     html += `<div class="hint">اضغط على عنصر لتحديده</div>`;
   } else if (app.objPanel === 'motion') {
@@ -958,13 +973,7 @@ function openMenu(view = 'main') {
       <button class="tile" data-m="new">${icon('plus', 30)}<span>مشروع جديد</span></button>
     </div>
     <h4>طريقة الاستخدام</h4>
-    <ul class="help">
-      <li><b>إصبع واحد:</b> تدوير الكاميرا حول الهدف (Orbit)</li>
-      <li><b>إصبعين:</b> سحب = Pan، قرص = Dolly / Zoom</li>
-      <li><b>وضع "التفاف":</b> الكاميرا بتلف بمكانها (Pan / Tilt)</li>
-      <li><b>مفاتيح الكاميرا:</b> حرّك المؤشر بالشريط ← حرّك الكاميرا ← اضغط ◆</li>
-      <li><b>حركة عنصر:</b> حدّده ← حركة A→B ← A بالبداية، B بالنهاية</li>
-    </ul>
+    ${desktop ? HELP_DESKTOP : HELP_TOUCH}
     <p class="note">كل شي محفوظ تلقائيًا على هذا الجهاز فقط. ما في حساب ولا سحابة.</p>`,
   (b) => b.addEventListener('click', (e) => {
     const m = e.target.closest('[data-m]')?.dataset.m;
@@ -984,6 +993,39 @@ function openMenu(view = 'main') {
     }
   }));
 }
+
+const HELP_TOUCH = `<ul class="help">
+      <li><b>إصبع واحد:</b> تدوير الكاميرا حول الهدف (Orbit)</li>
+      <li><b>إصبعين:</b> سحب = Pan، قرص = Dolly / Zoom</li>
+      <li><b>وضع "التفاف":</b> الكاميرا بتلف بمكانها (Pan / Tilt)</li>
+      <li><b>مفاتيح الكاميرا:</b> حرّك المؤشر بالشريط ← حرّك الكاميرا ← اضغط ◆</li>
+      <li><b>حركة عنصر:</b> حدّده ← حركة A→B ← A بالبداية، B بالنهاية</li>
+    </ul>`;
+
+const HELP_DESKTOP = `<ul class="help">
+      <li><b>سحب بالزر اليسار:</b> Orbit حول الهدف</li>
+      <li><b>سحب بالزر اليمين أو Shift:</b> Pan &nbsp;·&nbsp; <b>العجلة:</b> Dolly</li>
+      <li><b>مفاتيح الكاميرا:</b> حرّك المؤشر ← حرّك الكاميرا ← <kbd>K</kbd></li>
+    </ul>
+    <h4>اختصارات الكيبورد</h4>
+    <div class="keys">
+      <span><kbd>Space</kbd> تشغيل / إيقاف</span>
+      <span><kbd>K</kbd> إضافة / تحديث مفتاح</span>
+      <span><kbd>Delete</kbd> حذف المفتاح أو العنصر</span>
+      <span><kbd>Ctrl</kbd>+<kbd>Z</kbd> تراجع</span>
+      <span><kbd>←</kbd> <kbd>→</kbd> ‎0.1s ‏(مع Shift ثانية)</span>
+      <span><kbd>[</kbd> <kbd>]</kbd> المفتاح السابق / التالي</span>
+      <span><kbd>Home</kbd> <kbd>End</kbd> البداية / النهاية</span>
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> تحريك الكاميرا</span>
+      <span><kbd>Q</kbd> <kbd>E</kbd> نزول / طلوع (Shift أسرع)</span>
+      <span><kbd>V</kbd> مدار / التفاف</span>
+      <span><kbd>L</kbd> العدسة &nbsp; <kbd>T</kbd> الهدف</span>
+      <span><kbd>F</kbd> نسبة الإطار</span>
+      <span><kbd>1</kbd> <kbd>2</kbd> كاميرا / مجسمات</span>
+      <span><kbd>G</kbd> <kbd>R</kbd> <kbd>S</kbd> تحريك / تدوير / حجم</span>
+      <span><kbd>N</kbd> إضافة عنصر &nbsp; <kbd>Ctrl</kbd>+<kbd>D</kbd> نسخ</span>
+      <span><kbd>P</kbd> معاينة &nbsp; <kbd>Esc</kbd> رجوع</span>
+    </div>`;
 
 function openVideoSheet() {
   const v = app.video;
@@ -1090,6 +1132,7 @@ $('#actions').addEventListener('click', (e) => {
     aspect: cycleAspect,
     'cam-num': openCamNumbers,
     add: openAddSheet,
+    'add-type': () => addObject(b.dataset.type),
     'cam-here': () => {
       app.cam.pos = stage.editorCam.position.toArray();
       app.cam.target = stage.editorControls.target.toArray();
@@ -1150,6 +1193,77 @@ canvas.addEventListener('pointerup', (e) => {
 });
 canvas.addEventListener('pointercancel', () => { tap = null; });
 
+/* ---------- الكيبورد (للكمبيوتر) ---------- */
+
+// e.code = مكان الزر الفعلي، فالاختصارات بتشتغل حتى لو الكيبورد عربي
+const held = new Set();
+const NUDGE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'];
+
+function keyNudge() {
+  if (app.mode !== 'camera') return null;
+  const k = (c) => (held.has(c) ? 1 : 0);
+  const f = k('KeyW') - k('KeyS'), r = k('KeyD') - k('KeyA'), u = k('KeyE') - k('KeyQ');
+  if (!f && !r && !u) return null;
+  return { f, r, u, fast: held.has('ShiftLeft') || held.has('ShiftRight') };
+}
+
+function jumpKey(dir) {
+  const ks = app.keys;
+  const k = dir > 0 ? ks.find((x) => x.t > app.time + 1e-3) : [...ks].reverse().find((x) => x.t < app.time - 1e-3);
+  if (k) { pause(); applyTime(k.t); }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea, select')) return;
+  const sheetOpen = !$('#sheet').hidden;
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.code === 'Escape') {
+    if (sheetOpen) closeSheet();
+    else if (app.preview) exitPreview();
+    else if (app.objPanel === 'motion') { app.objPanel = 'main'; renderActions(true); }
+    else if (app.selectedId) select(null);
+    return;
+  }
+  if (sheetOpen) return;
+  if (mod && e.code === 'KeyZ') { e.preventDefault(); undo(); return; }
+  if (mod && e.code === 'KeyD') { e.preventDefault(); if (app.mode === 'objects') duplicateObject(); return; }
+  if (mod || e.altKey) return;
+  if (NUDGE_KEYS.includes(e.code) && app.mode === 'camera') { held.add(e.code); e.preventDefault(); return; }
+  if (e.code.startsWith('Shift')) { held.add(e.code); return; }
+  if (e.repeat && !['ArrowLeft', 'ArrowRight'].includes(e.code)) return;
+
+  const step = e.shiftKey ? 1 : 0.1;
+  const run = {
+    Space: () => (app.playing ? pause() : play()),
+    KeyK: () => !app.preview && addKey(),
+    Enter: () => !app.preview && app.mode === 'camera' && addKey(),
+    Delete: () => (app.mode === 'camera' ? deleteKey() : deleteObject()),
+    Backspace: () => (app.mode === 'camera' ? deleteKey() : deleteObject()),
+    ArrowRight: () => { pause(); applyTime(A.snapTime(app.time + step)); },
+    ArrowLeft: () => { pause(); applyTime(A.snapTime(app.time - step)); },
+    Home: () => { pause(); applyTime(0); },
+    End: () => { pause(); applyTime(app.project.duration); },
+    BracketLeft: () => jumpKey(-1),
+    BracketRight: () => jumpKey(1),
+    Digit1: () => !app.preview && setMode('camera'),
+    Digit2: () => !app.preview && setMode('objects'),
+    KeyP: () => (app.preview ? exitPreview() : enterPreview()),
+    KeyF: () => { cycleAspect(); if (app.preview) layout(); },
+    KeyV: () => app.mode === 'camera' && $('[data-act="gesture"]')?.click(),
+    KeyL: () => app.mode === 'camera' && !app.preview && openLensSheet(),
+    KeyT: () => app.mode === 'camera' && !app.preview && openTargetSheet(),
+    KeyN: () => app.mode === 'objects' && openAddSheet(),
+    KeyC: () => app.mode === 'objects' && $('[data-act="cam-here"]')?.click(),
+    KeyG: () => app.selectedId && $('[data-act="gizmo"][data-v="translate"]')?.click(),
+    KeyR: () => app.selectedId && $('[data-act="gizmo"][data-v="rotate"]')?.click(),
+    KeyS: () => app.selectedId && $('[data-act="gizmo"][data-v="scale"]')?.click(),
+  }[e.code];
+  if (run) { e.preventDefault(); run(); }
+});
+document.addEventListener('keyup', (e) => held.delete(e.code));
+window.addEventListener('blur', () => held.clear());
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
 // منع تكبير الصفحة بالقرص على سفاري
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
@@ -1177,7 +1291,8 @@ function frame(now) {
     applyTime(t);
   }
 
-  if (app.nudge && app.mode === 'camera' && !app.playing) nudgeStep(dt);
+  const kn = !app.nudge && !app.preview ? keyNudge() : null;
+  if ((app.nudge || kn) && app.mode === 'camera' && !app.playing) nudgeStep(dt, kn);
 
   const changed = stage.tick();
   if (changed === 'shot') onCameraManual();
@@ -1197,7 +1312,9 @@ setMode('camera');
 saveNow();
 requestAnimationFrame(frame);
 if (!S.listProjects().some((e) => e.id !== app.project.id) && !app.project.keys.length) {
-  setTimeout(() => toast('حرّك الكاميرا بإصبعك، ثم اضغط ◆ إضافة مفتاح كاميرا', 4200), 600);
+  setTimeout(() => toast(desktop
+    ? 'اسحب بالماوس لتحريك الكاميرا، ثم اضغط K لإضافة مفتاح — الاختصارات بالقائمة ☰'
+    : 'حرّك الكاميرا بإصبعك، ثم اضغط ◆ إضافة مفتاح كاميرا', 4200), 600);
 }
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
