@@ -223,7 +223,8 @@ export function importScene(text) {
 
 /* ---------- التعليمات اللي بتنلصق لـ Claude ---------- */
 
-export function claudePrompt(p) {
+/** قواعد صيغة المشهد لـ Claude (نفس النص بملف CLAUDE-SCENES.md). */
+export function claudeRules() {
   return `You are helping me block out a shot in "Laqta", a simple 3D camera-blocking app I use before generating AI video.
 Reply with ONE json code block only, in the exact format below (valid JSON, no comments).
 
@@ -249,10 +250,14 @@ RULES
 - "ease": "smooth" (default: eases in/out, passes smoothly through middle keys, never overshoots) or "linear" (constant speed). It applies to the segment that starts at that key. Two identical consecutive keys = a hold.
 - Build camera moves with keys: dolly in/out = move pos along the view line; truck = move pos and target sideways together; pedestal / crane = change pos y (crane: also arc the distance); orbit = keys around the target at the same distance and height, one key every 45° or less; pan / tilt = keep pos, move target; push in = closer pos or longer lens; follow = target the moving object.
 - Framing check (do the maths for every key): visible width at distance d = d × W / lens and visible height = d × H / lens, with W×H = 20.25×36 for 9:16, 36×20.25 for 16:9, 36×36 for 1:1. Keep the subject within about 70% of the frame unless it is a deliberate close-up. Example: a car side-on (4.4 m) in 9:16 at 24 mm needs d ≥ 7.5 m.
-- Keep the camera at least 0.5 m from objects, never inside them, and above the ground (y ≥ 0.15) unless I ask otherwise. Keep the main subject inside the ${p.aspect} frame.
+- Keep the camera at least 0.5 m from objects, never inside them, and above the ground (y ≥ 0.15) unless I ask otherwise. Keep the main subject inside the frame.
 - Think like a cinematographer: motivated moves, clear beats, no random jitter. Slow motion = space the object keys further apart in time after the key moment (speed ramp).
 
-CURRENT SCENE (edit it unless I ask for a new one)
+`;
+}
+
+export function claudePrompt(p) {
+  return `${claudeRules()}CURRENT SCENE (edit it unless I ask for a new one)
 ${exportText(p)}
 
 MY SHOT

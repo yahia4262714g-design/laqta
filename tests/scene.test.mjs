@@ -89,3 +89,10 @@ test('تعليمات Claude فيها القواعد والمشهد الحالي'
   const txt = claudePrompt(p);
   assert.ok(txt.includes('RULES') && txt.includes('"target":"car"') && txt.includes('16:9') && txt.trim().endsWith('MY SHOT'));
 });
+
+test('ملف CLAUDE-SCENES.md مطابق لقواعد التطبيق', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { claudeRules } = await import('../js/scene-io.js');
+  const md = await readFile(new URL('../CLAUDE-SCENES.md', import.meta.url), 'utf8');
+  assert.ok(md.includes(claudeRules().trim()), 'حدّث CLAUDE-SCENES.md لما تتغير القواعد');
+});
